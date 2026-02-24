@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TinyBrain 🧠</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="bg-slate-900 text-slate-100 min-h-screen">
+    <div class="container mx-auto p-6">
+        <!-- Header -->
+        <header class="mb-8">
+            <h1 class="text-4xl font-bold mb-2">🧠 TinyBrain</h1>
+            <p class="text-slate-400">Security-Focused LLM Memory Storage</p>
+        </header>
+
+        <!-- Navigation -->
+        <nav class="mb-8 flex gap-4 border-b border-slate-700 pb-4">
+            <button onclick="app.showView('dashboard')" class="nav-btn active" data-view="dashboard">Dashboard</button>
+            <button onclick="app.showView('sessions')" class="nav-btn" data-view="sessions">Sessions</button>
+            <button onclick="app.showView('graph')" class="nav-btn" data-view="graph">Graph</button>
+            <button onclick="app.showView('tags')" class="nav-btn" data-view="tags">Tags</button>
+        </nav>
+
+        <!-- Views -->
+        <div id="dashboard-view" class="view active">
+            <h2 class="text-2xl font-bold mb-6">Dashboard</h2>
+            
+            <!-- Stats Cards -->
+            <div class="grid grid-cols-4 gap-4 mb-8">
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-sessions">-</div>
+                    <div class="stat-label">Sessions</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-memories">-</div>
+                    <div class="stat-label">Memories</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-relationships">-</div>
+                    <div class="stat-label">Relationships</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="stat-tags">-</div>
+                    <div class="stat-label">Unique Tags</div>
+                </div>
+            </div>
+
+            <!-- Category Breakdown -->
+            <div class="card mb-8">
+                <h3 class="text-xl font-bold mb-4">Memories by Category</h3>
+                <div id="category-breakdown" class="space-y-2"></div>
+            </div>
+
+            <!-- Recent Sessions -->
+            <div class="card">
+                <h3 class="text-xl font-bold mb-4">Recent Sessions</h3>
+                <div id="recent-sessions" class="space-y-2"></div>
+            </div>
+        </div>
+
+        <div id="sessions-view" class="view">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold">Sessions</h2>
+            </div>
+            <div id="sessions-list" class="space-y-4"></div>
+        </div>
+
+        <div id="session-detail-view" class="view">
+            <button onclick="app.showView('sessions')" class="text-blue-400 hover:text-blue-300 mb-4">← Back to Sessions</button>
+            <div class="flex justify-between items-center mb-6">
+                <div>
+                    <h2 class="text-2xl font-bold" id="session-name">-</h2>
+                    <p class="text-slate-400" id="session-description">-</p>
+                </div>
+                <button onclick="app.exportSession()" class="btn-primary">Export JSON</button>
+            </div>
+            
+            <!-- Search -->
+            <div class="mb-6">
+                <input type="text" id="memory-search" placeholder="Search memories..." class="search-input" onkeyup="app.searchMemories()">
+            </div>
+
+            <!-- Memories -->
+            <div id="memories-list" class="space-y-4"></div>
+        </div>
+
+        <div id="graph-view" class="view">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-bold">Relationship Graph</h2>
+                <select id="graph-session-select" onchange="app.loadSessionGraph()" class="select-input">
+                    <option value="">Select a session...</option>
+                </select>
+            </div>
+            <div id="graph-container" class="graph-container"></div>
+            <div id="graph-legend" class="mt-4 flex gap-4 text-sm">
+                <div><span class="legend-dot bg-red-500"></span> Vulnerability</div>
+                <div><span class="legend-dot bg-amber-500"></span> Exploit</div>
+                <div><span class="legend-dot bg-blue-500"></span> Finding</div>
+                <div><span class="legend-dot bg-violet-500"></span> Technique</div>
+                <div><span class="legend-dot bg-cyan-500"></span> Tool</div>
+                <div><span class="legend-dot bg-gray-500"></span> Other</div>
+            </div>
+        </div>
+
+        <div id="tags-view" class="view">
+            <h2 class="text-2xl font-bold mb-6">Tag Co-occurrence Graph</h2>
+            <div id="tags-graph-container" class="graph-container"></div>
+        </div>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

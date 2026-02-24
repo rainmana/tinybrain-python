@@ -15,6 +15,7 @@ TinyBrain is a modern Python implementation of a comprehensive memory storage sy
 
 ### 🚀 Modern Python Stack
 - **FastMCP**: Latest MCP protocol server framework
+- **FastAPI**: High-performance web interface
 - **Async SQLite**: High-performance async database with aiosqlite
 - **FTS5 Search**: Full-text search with SQLite FTS5
 - **Typer CLI**: Modern CLI with rich features
@@ -22,11 +23,19 @@ TinyBrain is a modern Python implementation of a comprehensive memory storage sy
 - **Pydantic**: Type-safe models and settings
 - **UV**: Fast Python package manager
 
+### 🎨 Web Interface
+- **Dark Mode UI**: Beautiful, modern interface
+- **Graph Visualization**: Interactive relationship and tag graphs with Cytoscape.js
+- **Session Browser**: Browse and search memories
+- **Export**: JSON export for sessions and memories
+- **Real-time Stats**: Dashboard with statistics and insights
+
 ### 🔍 Intelligence Features
-- **MITRE ATT&CK Integration**: Complete framework with 14 tactics and 200+ techniques
-- **NVD Integration**: National Vulnerability Database access
-- **CWE Patterns**: Common Weakness Enumeration
-- **OWASP Compliance**: OWASP Top 10 2021 integration
+- **Tag-Based Linking**: Discover related memories through shared tags
+- **MITRE ATT&CK Integration**: Complete framework with 14 tactics and 200+ techniques (planned)
+- **NVD Integration**: National Vulnerability Database access (planned)
+- **CWE Patterns**: Common Weakness Enumeration (planned)
+- **OWASP Compliance**: OWASP Top 10 2021 integration (planned)
 
 ## 🚀 Quick Start
 
@@ -82,6 +91,12 @@ tinybrain serve
 
 # Start with custom database path
 tinybrain serve --db-path ~/.tinybrain/custom.db
+
+# Start the web interface
+tinybrain web
+
+# Start web interface on custom port
+tinybrain web --port 3000
 
 # Show statistics
 tinybrain stats

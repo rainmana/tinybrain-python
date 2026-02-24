@@ -169,6 +169,31 @@ def cleanup(
     asyncio.run(cleanup_old())
 
 
+@app.command()
+def web(
+    host: str = typer.Option("127.0.0.1", help="Host to bind to"),
+    port: int = typer.Option(8080, help="Port to bind to"),
+    db_path: Path = typer.Option(
+        settings.db_path,
+        "--db-path",
+        "-d",
+        help="Path to SQLite database",
+    ),
+) -> None:
+    """Start the web interface."""
+    import uvicorn
+    import os
+    
+    # Set database path
+    os.environ["TINYBRAIN_DB_PATH"] = str(db_path)
+    
+    setup_logging()
+    logger.info(f"Starting web interface at http://{host}:{port}")
+    
+    from tinybrain.web import app as web_app
+    uvicorn.run(web_app, host=host, port=port)
+
+
 def main() -> None:
     """Main entry point."""
     app()
