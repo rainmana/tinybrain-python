@@ -137,7 +137,7 @@ async def get_session_graph(session_id: str):
     
     placeholders = ",".join("?" * len(memory_ids))
     cursor = await db._conn.execute(
-        f"SELECT * FROM relationships WHERE source_memory_id IN ({placeholders}) OR target_memory_id IN ({placeholders})",
+        f"SELECT * FROM relationships WHERE source_entry_id IN ({placeholders}) OR target_entry_id IN ({placeholders})",
         (*memory_ids, *memory_ids)
     )
     relationships = await cursor.fetchall()
@@ -160,8 +160,8 @@ async def get_session_graph(session_id: str):
         edges.append({
             "data": {
                 "id": r["id"],
-                "source": r["source_memory_id"],
-                "target": r["target_memory_id"],
+                "source": r["source_entry_id"],
+                "target": r["target_entry_id"],
                 "type": r["relationship_type"],
                 "strength": r["strength"]
             }
@@ -235,7 +235,7 @@ async def export_session(session_id: str):
     if memory_ids:
         placeholders = ",".join("?" * len(memory_ids))
         cursor = await db._conn.execute(
-            f"SELECT * FROM relationships WHERE source_memory_id IN ({placeholders}) OR target_memory_id IN ({placeholders})",
+            f"SELECT * FROM relationships WHERE source_entry_id IN ({placeholders}) OR target_entry_id IN ({placeholders})",
             (*memory_ids, *memory_ids)
         )
         relationships = await cursor.fetchall()
