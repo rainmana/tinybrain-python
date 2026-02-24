@@ -152,35 +152,44 @@ If you're using UV and want to ensure the correct environment:
 }
 ```
 
-## 🛠️ MCP Tools
+## 🛠️ MCP Tools (20 Total)
 
 TinyBrain provides comprehensive MCP tools for memory management:
 
-### Discovery Tools (Start Here!)
+### Discovery Tools (4 tools - Start Here!)
 - `get_tinybrain_help` - Quick start guide and usage information
 - `list_memory_categories` - List all valid memory categories with descriptions
 - `list_task_types` - List all valid task types for sessions
 - `list_relationship_types` - List all valid relationship types
 
-### Core Memory Operations
+### Core Memory Operations (5 tools)
 - `store_memory` - Store new memory entries (requires session_id)
 - `get_memory` - Retrieve memory by ID
 - `search_memories` - Advanced search with filters
 - `update_memory` - Update existing memories
 - `delete_memory` - Delete memory entries
 
-### Session Management
+### Session Management (3 tools)
 - `create_session` - Create new security assessment sessions
 - `get_session` - Retrieve session information
+- `list_sessions` - List all sessions with filters
 
-### Relationship Management
+### Tag-Based Linking (3 tools)
+- `get_popular_tags` - See most frequently used tags
+- `find_memories_by_tags` - Find memories with specific tags (AND/OR logic)
+- `suggest_related_by_tags` - Automatic suggestions based on tag overlap
+
+### Relationship Management (2 tools)
 - `create_relationship` - Create memory relationships
 - `get_related_memories` - Get related memories
 
-### Notifications
+### Statistics (1 tool)
+- `get_memory_stats` - Comprehensive statistics by category, priority, confidence
+
+### Notifications (1 tool)
 - `get_notifications` - Get notifications and alerts
 
-### System
+### System (1 tool)
 - `health_check` - Perform system health checks
 
 ## 🎯 Quick Start Workflow
