@@ -336,6 +336,56 @@ class Database:
         all_data = await asyncio.to_thread(_get_related)
         return [Memory(**d) for d in all_data[:limit]]
 
+    # ── Session list/delete ─────────────────────────────────────────
+
+    async def list_sessions(
+        self,
+        task_type: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = 20,
+    ) -> list[Session]:
+        def _list() -> list[dict]:
+            if status:
+                ids = self._list_ids_by_field("status", status, self.SESSION_PREFIX)
+            elif task_type:
+                ids = self._list_ids_by_field("task_type", task_type, self.SESSION_PREFIX)
+            else:
+                ids = self._list_ids_by_type("session")
+            return self._fetch_entities(ids)
+
+        all_data = await asyncio.to_thread(_list)
+        sessions = []
+        for d in all_data:
+            if task_type and d.get("task_type") != task_type:
+                continue
+            if status and d.get("status") != status:
+                continue
+            sessions.append(Session(**d))
+        sessions.sort(key=lambda s: s.created_at, reverse=True)
+        return sessions[:limit]
+
+    async def delete_session(self, session_id: str) -> bool:
+        entity_id = f"{self.SESSION_PREFIX}{session_id}"
+
+        def _delete() -> bool:
+            data = self._get_entity_data(entity_id)
+            if not data:
+                return False
+            mem_ids = self._list_ids_by_field("session_id", session_id, self.MEMORY_PREFIX)
+            for mid in mem_ids:
+                mem_data = self._get_entity_data(mid)
+                if mem_data:
+                    self._delete_entity(
+                        mid, "memory", mem_data, ("session_id", "category", "priority", "content_type")
+                    )
+            self._delete_entity(entity_id, "session", data, ("status", "task_type"))
+            return True
+
+        result = await asyncio.to_thread(_delete)
+        if result:
+            logger.info(f"Deleted session: {session_id}")
+        return result
+
     # ── Notification operations ──────────────────────────────────────
 
     async def create_notification(self, notification: Notification) -> Notification:
