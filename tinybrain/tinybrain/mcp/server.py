@@ -7,38 +7,30 @@ from typing import Any, Optional
 from fastmcp import FastMCP
 from pydantic import ValidationError
 
-from tinybrain.database import Database, SQLiteBackend, ChromaDBBackend
-from tinybrain.models.memory import MemoryCreateRequest, MemoryUpdateRequest, MemorySearchRequest
-from tinybrain.models.session import SessionCreateRequest, SessionUpdateRequest, SessionListRequest
-from tinybrain.models.relationship import RelationshipCreateRequest, RelationshipType
-from tinybrain.models.context_snapshot import ContextSnapshotCreateRequest
-from tinybrain.models.task_progress import TaskProgressCreateRequest, TaskProgressUpdateRequest
+from ..database import Database, CogDBBackend
+from ..models.memory import MemoryCreateRequest, MemoryUpdateRequest, MemorySearchRequest
+from ..models.session import SessionCreateRequest, SessionUpdateRequest, SessionListRequest
+from ..models.relationship import RelationshipCreateRequest, RelationshipType
+from ..models.context_snapshot import ContextSnapshotCreateRequest
+from ..models.task_progress import TaskProgressCreateRequest, TaskProgressUpdateRequest
 
 
-# Global database instance (initialized on first use)
 _db_instance: Optional[Database] = None
 
 
-def get_database(db_path: Optional[str] = None, use_chromadb: bool = False) -> Database:
+def get_database(cog_home: Optional[str] = None, cog_path_prefix: Optional[str] = None) -> Database:
     """Get or create the database instance."""
     global _db_instance
-    
+
     if _db_instance is None:
-        # Determine database path
-        if db_path is None:
-            db_path = str(Path.home() / ".tinybrain" / "data.db")
-        
-        # Create database backend
-        if use_chromadb:
-            sqlite_backend = SQLiteBackend(db_path)
-            chromadb_path = str(Path(db_path).parent / "chroma_db")
-            backend = ChromaDBBackend(chromadb_path, sqlite_backend)
-        else:
-            backend = SQLiteBackend(db_path)
-        
+        if cog_home is None:
+            cog_home = "tinybrain"
+        if cog_path_prefix is None:
+            cog_path_prefix = str(Path.home() / ".tinybrain")
+
+        backend = CogDBBackend(cog_home=cog_home, cog_path_prefix=cog_path_prefix)
         _db_instance = Database(backend)
-        
-        # Initialize database
+
         import asyncio
         try:
             loop = asyncio.get_event_loop()
@@ -46,18 +38,16 @@ def get_database(db_path: Optional[str] = None, use_chromadb: bool = False) -> D
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
         loop.run_until_complete(_db_instance.initialize())
-    
+
     return _db_instance
 
 
-def create_mcp_server(db_path: Optional[str] = None, use_chromadb: bool = False) -> FastMCP:
+def create_mcp_server(cog_home: Optional[str] = None, cog_path_prefix: Optional[str] = None) -> FastMCP:
     """Create and configure the MCP server."""
-    # Create MCP server
     mcp = FastMCP("TinyBrain")
-    
-    # Helper to get database instance
+
     def get_db():
-        return get_database(db_path, use_chromadb)
+        return get_database(cog_home, cog_path_prefix)
     
     # Session management tools
     @mcp.tool()

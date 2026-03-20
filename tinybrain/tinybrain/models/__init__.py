@@ -1,17 +1,17 @@
 """Data models for TinyBrain."""
 
-from tinybrain.models.memory import Memory, MemoryCreateRequest, MemoryUpdateRequest
-from tinybrain.models.session import Session, SessionCreateRequest, SessionUpdateRequest
-from tinybrain.models.relationship import (
+from .memory import Memory, MemoryCreateRequest, MemoryUpdateRequest
+from .session import Session, SessionCreateRequest, SessionUpdateRequest
+from .relationship import (
     Relationship,
     RelationshipCreateRequest,
     RelationshipType,
 )
-from tinybrain.models.context_snapshot import (
+from .context_snapshot import (
     ContextSnapshot,
     ContextSnapshotCreateRequest,
 )
-from tinybrain.models.task_progress import (
+from .task_progress import (
     TaskProgress,
     TaskProgressCreateRequest,
     TaskProgressUpdateRequest,
@@ -33,4 +33,3 @@ __all__ = [
     "TaskProgressCreateRequest",
     "TaskProgressUpdateRequest",
 ]
-

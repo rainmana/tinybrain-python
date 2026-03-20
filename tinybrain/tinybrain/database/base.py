@@ -4,18 +4,18 @@ from abc import ABC, abstractmethod
 from typing import Any, Optional
 from pathlib import Path
 
-from tinybrain.models.memory import Memory, MemoryCreateRequest, MemoryUpdateRequest
-from tinybrain.models.session import Session, SessionCreateRequest, SessionUpdateRequest
-from tinybrain.models.relationship import (
+from ..models.memory import Memory, MemoryCreateRequest, MemoryUpdateRequest
+from ..models.session import Session, SessionCreateRequest, SessionUpdateRequest
+from ..models.relationship import (
     Relationship,
     RelationshipCreateRequest,
     RelationshipUpdateRequest,
 )
-from tinybrain.models.context_snapshot import (
+from ..models.context_snapshot import (
     ContextSnapshot,
     ContextSnapshotCreateRequest,
 )
-from tinybrain.models.task_progress import (
+from ..models.task_progress import (
     TaskProgress,
     TaskProgressCreateRequest,
     TaskProgressUpdateRequest,
