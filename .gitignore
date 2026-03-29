@@ -61,3 +61,6 @@ Thumbs.db
 
 # TinyBrain specific
 .tinybrain/
+CONSTRAINT_EXPLORATION.md
+SYSTEM_PROMPT_ANALYSIS.md
+SYSTEM_PROMPT_RAW.md
