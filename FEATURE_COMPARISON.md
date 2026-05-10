@@ -1,228 +1,108 @@
 # TinyBrain Feature Comparison: Go vs Python
 
-## Overview
-- **Go Version**: 40 MCP tools
-- **Python Version**: 15 MCP tools (11 core + 4 discovery)
+## Current Status
 
-## Feature Comparison by Category
+- **Original Go version**: Approximately 40 MCP tools in the published feature set.
+- **Python version**: 38 MCP tools currently registered by FastMCP.
+- **Testing**: Full pytest suite passes, and a live FastMCP `call_tool` smoke test exercises the new MCP parity tools against an isolated temporary CogDB database.
 
-### 1. Core Memory Operations (8 tools in Go)
+The Python implementation now covers the major day-to-day parity surface: memory CRUD, sessions, relationships, tags, notifications, statistics, duplicate detection, local similarity search, batch operations, session import/export, templates, context summaries, and diagnostics.
 
-| Tool | Go | Python | Status |
-|------|----|----|--------|
-| `store_memory` | ✅ | ✅ | **Implemented** |
-| `get_memory` | ✅ | ✅ | **Implemented** |
-| `search_memories` | ✅ | ✅ | **Implemented** |
-| `update_memory` | ✅ | ✅ | **Implemented** |
-| `delete_memory` | ✅ | ✅ | **Implemented** |
-| `find_similar_memories` | ✅ | ❌ | Missing |
-| `check_duplicates` | ✅ | ❌ | Missing |
-| `get_memory_stats` | ✅ | ❌ | Missing |
+## Implemented MCP Tools
 
-**Python Status**: 5/8 (62.5%)
+### Discovery
 
-### 2. Session & Task Management (6 tools in Go)
+| Tool | Python Status |
+|------|---------------|
+| `get_tinybrain_help` | Implemented |
+| `list_memory_categories` | Implemented |
+| `list_task_types` | Implemented |
+| `list_relationship_types` | Implemented |
 
-| Tool | Go | Python | Status |
-|------|----|----|--------|
-| `create_session` | ✅ | ✅ | **Implemented** |
-| `get_session` | ✅ | ✅ | **Implemented** |
-| `list_sessions` | ✅ | ❌ | Missing |
-| `create_task_progress` | ✅ | ❌ | Missing |
-| `update_task_progress` | ✅ | ❌ | Missing |
-| `list_task_progress` | ✅ | ❌ | Missing |
+### Core Memory Operations
 
-**Python Status**: 2/6 (33.3%)
+| Tool | Python Status |
+|------|---------------|
+| `store_memory` | Implemented |
+| `get_memory` | Implemented |
+| `search_memories` | Implemented |
+| `update_memory` | Implemented |
+| `delete_memory` | Implemented |
+| `find_similar_memories` | Implemented |
+| `check_duplicates` | Implemented |
+| `get_memory_stats` | Implemented |
 
-### 3. Advanced Memory Features (8 tools in Go)
+### Session, Relationship, And Context
 
-| Tool | Go | Python | Status |
-|------|----|----|--------|
-| `create_relationship` | ✅ | ✅ | **Implemented** |
-| `get_related_memories` | ✅ | ✅ | **Implemented** |
-| `create_context_snapshot` | ✅ | ❌ | Missing |
-| `get_context_snapshot` | ✅ | ❌ | Missing |
-| `list_context_snapshots` | ✅ | ❌ | Missing |
-| `get_context_summary` | ✅ | ❌ | Missing |
-| `export_session_data` | ✅ | ❌ | Missing |
-| `import_session_data` | ✅ | ❌ | Missing |
+| Tool | Python Status |
+|------|---------------|
+| `create_session` | Implemented |
+| `get_session` | Implemented |
+| `list_sessions` | Implemented |
+| `create_relationship` | Implemented |
+| `get_related_memories` | Implemented |
+| `get_context_summary` | Implemented |
+| `export_session_data` | Implemented |
+| `import_session_data` | Implemented |
+| `get_detailed_memory_info` | Implemented |
 
-**Python Status**: 2/8 (25%)
+### Tags, Templates, And Batch Operations
 
-### 4. Security Templates & Batch Operations (6 tools in Go)
+| Tool | Python Status |
+|------|---------------|
+| `get_popular_tags` | Implemented |
+| `find_memories_by_tags` | Implemented |
+| `suggest_related_by_tags` | Implemented |
+| `get_security_templates` | Implemented |
+| `create_memory_from_template` | Implemented |
+| `batch_create_memories` | Implemented |
+| `batch_update_memories` | Implemented |
+| `batch_delete_memories` | Implemented |
 
-| Tool | Go | Python | Status |
-|------|----|----|--------|
-| `get_security_templates` | ✅ | ❌ | Missing |
-| `create_memory_from_template` | ✅ | ❌ | Missing |
-| `batch_create_memories` | ✅ | ❌ | Missing |
-| `batch_update_memories` | ✅ | ❌ | Missing |
-| `batch_delete_memories` | ✅ | ❌ | Missing |
-| `get_detailed_memory_info` | ✅ | ❌ | Missing |
+### Similarity And Search
 
-**Python Status**: 0/6 (0%)
+| Tool | Python Status |
+|------|---------------|
+| `semantic_search` | Implemented with deterministic local token-vector ranking |
+| `generate_embedding` | Implemented as deterministic local hashed token vectors |
+| `calculate_similarity` | Implemented with token cosine similarity |
 
-### 5. Memory Lifecycle & Cleanup (4 tools in Go)
+These tools intentionally avoid network calls or external embedding providers, which keeps pentest observations local and makes tests deterministic. A neural embedding provider can be added later behind the same MCP contract if desired.
 
-| Tool | Go | Python | Status |
-|------|----|----|--------|
-| `cleanup_old_memories` | ✅ | ❌ | Missing (CLI only) |
-| `cleanup_low_priority_memories` | ✅ | ❌ | Missing |
-| `cleanup_unused_memories` | ✅ | ❌ | Missing |
-| `get_system_diagnostics` | ✅ | ❌ | Missing |
+### Notifications And Diagnostics
 
-**Python Status**: 0/4 (0%)
+| Tool | Python Status |
+|------|---------------|
+| `get_notifications` | Implemented |
+| `mark_notification_read` | Implemented |
+| `check_high_priority_memories` | Implemented |
+| `check_duplicate_memories` | Implemented as compatibility alias |
+| `health_check` | Implemented |
+| `get_system_diagnostics` | Implemented |
 
-### 6. AI-Enhanced Search (3 tools in Go)
+## Remaining Gaps
 
-| Tool | Go | Python | Status |
-|------|----|----|--------|
-| `semantic_search` | ✅ | ❌ | Missing |
-| `generate_embedding` | ✅ | ❌ | Missing |
-| `calculate_similarity` | ✅ | ❌ | Missing |
+| Area | Notes |
+|------|-------|
+| Task progress MCP tools | The nested inner backend has task-progress support, but the active outer MCP module does not currently expose task-progress tools. |
+| Context snapshot MCP tools | The nested inner backend has snapshot support, but the active outer MCP module exposes context summaries and import/export instead. |
+| Cleanup MCP tools | CLI cleanup exists; MCP cleanup tools are still a useful parity target. |
+| Security dataset persistence/querying | Download/query services exist in early form. Larger CVE/CWE/MITRE/Atomic/custom-framework datasets should likely use a DuckDB analytical sidecar. |
+| Neural semantic search | Current similarity tooling is deterministic and offline. Provider-backed embeddings can be added later without changing the public tool names. |
 
-**Python Status**: 0/3 (0%)
+## Storage Recommendation
 
-### 7. Real-Time Notifications (4 tools in Go)
+The Python implementation currently uses CogDB as the primary local graph store. That is a better fit than DuckDB for the core memory graph: memories, sessions, relationships, notifications, and traversal.
 
-| Tool | Go | Python | Status |
-|------|----|----|--------|
-| `get_notifications` | ✅ | ✅ | **Implemented** |
-| `mark_notification_read` | ✅ | ❌ | Missing |
-| `check_high_priority_memories` | ✅ | ❌ | Missing |
-| `check_duplicate_memories` | ✅ | ❌ | Missing |
+DuckDB is still a strong candidate as a sidecar for standards and intelligence datasets:
 
-**Python Status**: 1/4 (25%)
+- CVE/NVD records
+- CWE mappings
+- MITRE ATT&CK techniques and tactics
+- Atomic Red Team tests
+- Custom in-house frameworks
+- Cross-framework correlation and reporting
 
-### 8. System Monitoring (1 tool in Go)
+## Future Memory Technology Note
 
-| Tool | Go | Python | Status |
-|------|----|----|--------|
-| `health_check` | ✅ | ✅ | **Implemented** |
-
-**Python Status**: 1/1 (100%)
-
-### 9. Discovery Tools (Python Only)
-
-| Tool | Go | Python | Status |
-|------|----|----|--------|
-| `get_tinybrain_help` | ❌ | ✅ | **Python Enhancement** |
-| `list_memory_categories` | ❌ | ✅ | **Python Enhancement** |
-| `list_task_types` | ❌ | ✅ | **Python Enhancement** |
-| `list_relationship_types` | ❌ | ✅ | **Python Enhancement** |
-
-**Python Status**: 4/0 (New features)
-
-## Overall Summary
-
-### Implementation Status
-- **Total Go Tools**: 40
-- **Total Python Tools**: 15 (11 matching + 4 new)
-- **Matching Tools**: 11/40 (27.5%)
-- **Missing Tools**: 29/40 (72.5%)
-- **Python Enhancements**: 4 discovery tools
-
-### Database Schema Status
-
-| Feature | Go | Python | Status |
-|---------|----|----|--------|
-| Sessions table | ✅ | ✅ | **Implemented** |
-| Memory entries table | ✅ | ✅ | **Implemented** |
-| FTS5 search | ✅ | ✅ | **Implemented** |
-| Relationships table | ✅ | ✅ | **Implemented** |
-| Task progress table | ✅ | ✅ | **Schema only** |
-| Context snapshots table | ✅ | ✅ | **Schema only** |
-| Notifications table | ✅ | ✅ | **Implemented** |
-| Search history table | ✅ | ❌ | Missing |
-| CVE mappings table | ✅ | ❌ | Missing |
-| Risk correlations table | ✅ | ❌ | Missing |
-| Compliance mappings table | ✅ | ❌ | Missing |
-
-### Core Features Status
-
-| Feature | Go | Python | Notes |
-|---------|----|----|-------|
-| Basic CRUD | ✅ | ✅ | Fully working |
-| Sessions | ✅ | ✅ | Fully working |
-| Relationships | ✅ | ✅ | Fully working |
-| Tags | ✅ | ✅ | Stored as JSON array |
-| Full-text search | ✅ | ✅ | FTS5 implemented |
-| Notifications | ✅ | ✅ | High-priority only |
-| Task progress | ✅ | ❌ | Schema exists, no tools |
-| Context snapshots | ✅ | ❌ | Schema exists, no tools |
-| Batch operations | ✅ | ❌ | Not implemented |
-| Templates | ✅ | ❌ | Not implemented |
-| Cleanup tools | ✅ | ❌ | CLI only, no MCP tools |
-| Statistics | ✅ | ❌ | Not implemented |
-| Duplicate detection | ✅ | ❌ | Not implemented |
-| Similarity search | ✅ | ❌ | Not implemented |
-| Embeddings | ✅ | ❌ | Not implemented |
-| Export/Import | ✅ | ❌ | Not implemented |
-
-## Priority for Implementation
-
-### High Priority (Core Functionality)
-1. `list_sessions` - Essential for session management
-2. `get_memory_stats` - Usage analytics
-3. `find_similar_memories` - Content discovery
-4. `check_duplicates` - Data quality
-5. `get_context_summary` - AI context generation
-
-### Medium Priority (Enhanced Features)
-6. `create_task_progress` / `update_task_progress` / `list_task_progress` - Task tracking
-7. `create_context_snapshot` / `get_context_snapshot` / `list_context_snapshots` - State management
-8. `batch_create_memories` / `batch_update_memories` / `batch_delete_memories` - Bulk operations
-9. `mark_notification_read` - Notification management
-10. `export_session_data` / `import_session_data` - Data portability
-
-### Low Priority (Advanced Features)
-11. `semantic_search` / `generate_embedding` / `calculate_similarity` - AI search
-12. `get_security_templates` / `create_memory_from_template` - Templates
-13. `cleanup_old_memories` / `cleanup_low_priority_memories` / `cleanup_unused_memories` - Cleanup MCP tools
-14. `get_system_diagnostics` - Advanced diagnostics
-15. `get_detailed_memory_info` - Debug info
-16. `check_high_priority_memories` / `check_duplicate_memories` - Specialized notifications
-
-## Python Advantages
-
-1. **Discovery Tools** - Better AI discoverability (4 new tools)
-2. **Better Error Messages** - Returns valid values on error
-3. **Modern Stack** - FastMCP, Pydantic, async/await
-4. **UV Integration** - Fast package management
-5. **Type Safety** - Runtime validation with Pydantic
-
-## Go Advantages
-
-1. **Feature Complete** - 40 tools vs 15
-2. **Batch Operations** - Bulk CRUD operations
-3. **Templates** - Predefined security patterns
-4. **Advanced Search** - Semantic search with embeddings
-5. **Complete Cleanup** - Multiple cleanup strategies
-6. **Task Tracking** - Full task progress management
-7. **Context Management** - Snapshots and summaries
-8. **Data Portability** - Export/import functionality
-
-## Recommendations
-
-### For Basic Use
-Python version is sufficient with:
-- Core CRUD operations
-- Sessions and relationships
-- Full-text search
-- Notifications
-- Discovery tools
-
-### For Advanced Use
-Consider adding:
-1. Session listing
-2. Statistics
-3. Similarity search
-4. Batch operations
-5. Task progress tracking
-
-### For Production
-Add:
-1. Export/import
-2. Context snapshots
-3. Advanced cleanup
-4. System diagnostics
+The experimental `mempalace.yaml` and `entities.json` files were removed from the repo for now. Mempalace-style entity memory is worth revisiting later as a potential memory technology once it can be evaluated cleanly against CogDB and a DuckDB sidecar for accuracy, portability, and agent ergonomics.

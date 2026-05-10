@@ -1,6 +1,8 @@
 """FastMCP server with all TinyBrain tools."""
 
-import json
+import hashlib
+import math
+import re
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
@@ -8,11 +10,9 @@ from typing import Optional
 from uuid import uuid4
 
 from fastmcp import FastMCP
-from loguru import logger
 
 from tinybrain.database import Database
 from tinybrain.models import (
-    ContextSnapshot,
     Memory,
     MemoryCategory,
     Notification,
@@ -20,9 +20,6 @@ from tinybrain.models import (
     Relationship,
     RelationshipType,
     Session,
-    SessionStatus,
-    TaskProgress,
-    TaskStatus,
     TaskType,
 )
 
@@ -40,6 +37,78 @@ async def get_db() -> Database:
         db = Database(db_path)
         await db.initialize()
     return db
+
+
+TOKEN_RE = re.compile(r"[a-z0-9_./:-]+")
+
+SECURITY_TEMPLATES = {
+    "web_vulnerability": {
+        "category": "vulnerability",
+        "priority": 7,
+        "confidence": 0.7,
+        "tags": ["web", "vulnerability"],
+        "content": (
+            "Finding: {finding}\nAffected asset: {asset}\nEvidence: {evidence}\n"
+            "Impact: {impact}\nRecommendation: {recommendation}"
+        ),
+    },
+    "mitre_technique": {
+        "category": "technique",
+        "priority": 6,
+        "confidence": 0.75,
+        "tags": ["mitre-attack", "technique"],
+        "content": (
+            "Technique: {technique_id} {technique_name}\nTactic: {tactic}\n"
+            "Observed behavior: {evidence}\nDetection notes: {detection}\n"
+            "Mitigation: {mitigation}"
+        ),
+    },
+    "cve_mapping": {
+        "category": "reference",
+        "priority": 6,
+        "confidence": 0.8,
+        "tags": ["cve", "cwe", "vulnerability-intel"],
+        "content": (
+            "CVE: {cve_id}\nCWE: {cwe_id}\nAffected component: {component}\n"
+            "Relevance: {relevance}\nSource: {source}"
+        ),
+    },
+    "hypothesis": {
+        "category": "hypothesis",
+        "priority": 5,
+        "confidence": 0.4,
+        "tags": ["hypothesis", "needs-validation"],
+        "content": "Hypothesis: {hypothesis}\nRationale: {rationale}\nValidation plan: {validation_plan}",
+    },
+}
+
+
+def _tokenize(text: str) -> list[str]:
+    return TOKEN_RE.findall(text.lower())
+
+
+def _memory_text(memory: Memory) -> str:
+    category = memory.category.value if hasattr(memory.category, "value") else str(memory.category)
+    return " ".join([memory.title, memory.content, category, " ".join(memory.tags)])
+
+
+def _cosine_similarity(left: str, right: str) -> float:
+    left_counts = Counter(_tokenize(left))
+    right_counts = Counter(_tokenize(right))
+    if not left_counts or not right_counts:
+        return 0.0
+    shared = set(left_counts) & set(right_counts)
+    dot = sum(left_counts[t] * right_counts[t] for t in shared)
+    left_norm = math.sqrt(sum(v * v for v in left_counts.values()))
+    right_norm = math.sqrt(sum(v * v for v in right_counts.values()))
+    return round(dot / (left_norm * right_norm), 4)
+
+
+def _memory_preview(memory: Memory) -> dict:
+    data = memory.model_dump(mode="json")
+    if len(data.get("content", "")) > 300:
+        data["content"] = data["content"][:300] + "..."
+    return data
 
 
 # ── Core Memory Operations ────────────────────────────────────────
@@ -315,7 +384,7 @@ async def get_notifications(
 async def health_check() -> dict:
     """TinyBrain: Perform system health check."""
     try:
-        database = await get_db()
+        await get_db()
         return {
             "status": "healthy",
             "database": "cogdb",
@@ -456,6 +525,373 @@ async def suggest_related_by_tags(memory_id: str, limit: int = 10) -> dict:
         "source_tags": source.tags,
         "related": related[:limit],
         "total_found": len(related),
+    }
+
+
+# ── Parity & Analysis Tools ───────────────────────────────────────
+
+@mcp.tool()
+async def calculate_similarity(text_a: str, text_b: str) -> dict:
+    """TinyBrain: Calculate deterministic token similarity between two text blocks."""
+    return {
+        "similarity": _cosine_similarity(text_a, text_b),
+        "method": "token_cosine",
+    }
+
+
+@mcp.tool()
+async def generate_embedding(text: str, dimensions: int = 64) -> dict:
+    """TinyBrain: Generate a deterministic local feature vector for lightweight matching.
+
+    This is not a neural embedding. It is stable, offline, and useful for duplicate
+    detection, test fixtures, and tools that need an embedding-shaped signal.
+    """
+    dimensions = max(8, min(dimensions, 512))
+    vector = [0.0] * dimensions
+    tokens = _tokenize(text)
+    for token in tokens:
+        idx = int(hashlib.sha256(token.encode("utf-8")).hexdigest()[:8], 16) % dimensions
+        vector[idx] += 1.0
+    norm = math.sqrt(sum(v * v for v in vector)) or 1.0
+    return {
+        "embedding": [round(v / norm, 6) for v in vector],
+        "dimensions": dimensions,
+        "method": "hashed_token_counts",
+        "token_count": len(tokens),
+    }
+
+
+@mcp.tool()
+async def find_similar_memories(
+    memory_id: str,
+    session_id: Optional[str] = None,
+    threshold: float = 0.35,
+    limit: int = 10,
+) -> dict:
+    """TinyBrain: Find memories similar to a source memory using local text similarity."""
+    database = await get_db()
+    source = await database.get_memory(memory_id)
+    if not source:
+        return {"error": f"Memory not found: {memory_id}"}
+
+    memories = await database.search_memories(session_id=session_id, limit=100000)
+    source_text = _memory_text(source)
+    matches = []
+    for memory in memories:
+        if memory.id == memory_id:
+            continue
+        score = _cosine_similarity(source_text, _memory_text(memory))
+        if score >= threshold:
+            matches.append({"memory": _memory_preview(memory), "similarity": score})
+    matches.sort(key=lambda item: item["similarity"], reverse=True)
+    return {"source_memory_id": memory_id, "matches": matches[:limit], "count": len(matches)}
+
+
+@mcp.tool()
+async def semantic_search(
+    query: str,
+    session_id: Optional[str] = None,
+    category: Optional[str] = None,
+    min_score: float = 0.15,
+    limit: int = 20,
+) -> dict:
+    """TinyBrain: Search memories ranked by deterministic local semantic-ish similarity."""
+    database = await get_db()
+    memories = await database.search_memories(session_id=session_id, category=category, limit=100000)
+    results = []
+    for memory in memories:
+        score = _cosine_similarity(query, _memory_text(memory))
+        if score >= min_score:
+            results.append({"memory": _memory_preview(memory), "score": score})
+    results.sort(key=lambda item: item["score"], reverse=True)
+    return {"results": results[:limit], "count": len(results), "method": "token_cosine"}
+
+
+@mcp.tool()
+async def check_duplicates(
+    session_id: Optional[str] = None,
+    threshold: float = 0.9,
+    limit: int = 50,
+) -> dict:
+    """TinyBrain: Detect likely duplicate memories."""
+    database = await get_db()
+    memories = await database.search_memories(session_id=session_id, limit=100000)
+    duplicates = []
+    for i, left in enumerate(memories):
+        for right in memories[i + 1:]:
+            title_match = left.title.strip().lower() == right.title.strip().lower()
+            score = _cosine_similarity(_memory_text(left), _memory_text(right))
+            if title_match or score >= threshold:
+                duplicates.append(
+                    {
+                        "memory_a": _memory_preview(left),
+                        "memory_b": _memory_preview(right),
+                        "similarity": score,
+                        "reason": "same_title" if title_match else "content_similarity",
+                    }
+                )
+    duplicates.sort(key=lambda item: item["similarity"], reverse=True)
+    return {"duplicates": duplicates[:limit], "count": len(duplicates)}
+
+
+@mcp.tool()
+async def batch_create_memories(session_id: str, memories: list[dict]) -> dict:
+    """TinyBrain: Create multiple memories in one call."""
+    database = await get_db()
+    created = []
+    errors = []
+    for index, item in enumerate(memories):
+        try:
+            memory = Memory(
+                id=item.get("id") or f"mem_{uuid4().hex[:16]}",
+                session_id=session_id,
+                title=item["title"],
+                content=item["content"],
+                category=MemoryCategory(item["category"]),
+                priority=item.get("priority", 5),
+                confidence=item.get("confidence", 0.5),
+                tags=item.get("tags") or [],
+                source=item.get("source"),
+            )
+            await database.create_memory(memory)
+            created.append(memory.model_dump(mode="json"))
+        except Exception as exc:
+            errors.append({"index": index, "error": str(exc)})
+    return {"created": created, "created_count": len(created), "errors": errors}
+
+
+@mcp.tool()
+async def batch_update_memories(updates: list[dict]) -> dict:
+    """TinyBrain: Update multiple memories. Each item requires memory_id plus fields."""
+    database = await get_db()
+    updated = []
+    errors = []
+    for index, item in enumerate(updates):
+        memory_id = item.get("memory_id") or item.get("id")
+        if not memory_id:
+            errors.append({"index": index, "error": "memory_id is required"})
+            continue
+        allowed = {"title", "content", "priority", "confidence", "tags", "source", "category"}
+        patch = {key: value for key, value in item.items() if key in allowed}
+        success = await database.update_memory(memory_id, patch)
+        if success:
+            updated.append(memory_id)
+        else:
+            errors.append({"index": index, "memory_id": memory_id, "error": "not found"})
+    return {"updated": updated, "updated_count": len(updated), "errors": errors}
+
+
+@mcp.tool()
+async def batch_delete_memories(memory_ids: list[str]) -> dict:
+    """TinyBrain: Delete multiple memories in one call."""
+    database = await get_db()
+    deleted = []
+    missing = []
+    for memory_id in memory_ids:
+        if await database.delete_memory(memory_id):
+            deleted.append(memory_id)
+        else:
+            missing.append(memory_id)
+    return {"deleted": deleted, "deleted_count": len(deleted), "missing": missing}
+
+
+@mcp.tool()
+async def export_session_data(session_id: str) -> dict:
+    """TinyBrain: Export a session with its memories and relationships."""
+    database = await get_db()
+    session = await database.get_session(session_id)
+    if not session:
+        return {"error": f"Session not found: {session_id}"}
+    memories = await database.search_memories(session_id=session_id, limit=100000)
+    memory_ids = {m.id for m in memories}
+    relationships = [
+        r for r in await database.list_relationships(limit=100000)
+        if r.source_entry_id in memory_ids or r.target_entry_id in memory_ids
+    ]
+    return {
+        "schema_version": "tinybrain-export-v1",
+        "exported_at": datetime.utcnow().isoformat(),
+        "session": session.model_dump(mode="json"),
+        "memories": [m.model_dump(mode="json") for m in memories],
+        "relationships": [r.model_dump(mode="json") for r in relationships],
+    }
+
+
+@mcp.tool()
+async def import_session_data(data: dict, preserve_ids: bool = True) -> dict:
+    """TinyBrain: Import data produced by export_session_data."""
+    database = await get_db()
+    id_map = {}
+    session_data = dict(data["session"])
+    if not preserve_ids:
+        old_session_id = session_data["id"]
+        session_data["id"] = f"sess_{uuid4().hex[:16]}"
+        id_map[old_session_id] = session_data["id"]
+    session = Session(**session_data)
+    await database.create_session(session)
+
+    imported_memories = []
+    for item in data.get("memories", []):
+        memory_data = dict(item)
+        if not preserve_ids:
+            old_id = memory_data["id"]
+            memory_data["id"] = f"mem_{uuid4().hex[:16]}"
+            memory_data["session_id"] = session.id
+            id_map[old_id] = memory_data["id"]
+        memory = Memory(**memory_data)
+        await database.create_memory(memory)
+        imported_memories.append(memory.id)
+
+    imported_relationships = []
+    for item in data.get("relationships", []):
+        rel_data = dict(item)
+        if not preserve_ids:
+            rel_data["id"] = f"rel_{uuid4().hex[:16]}"
+            rel_data["source_entry_id"] = id_map.get(rel_data["source_entry_id"], rel_data["source_entry_id"])
+            rel_data["target_entry_id"] = id_map.get(rel_data["target_entry_id"], rel_data["target_entry_id"])
+        relationship = Relationship(**rel_data)
+        await database.create_relationship(relationship)
+        imported_relationships.append(relationship.id)
+
+    return {
+        "session_id": session.id,
+        "memories_imported": len(imported_memories),
+        "relationships_imported": len(imported_relationships),
+        "id_map": id_map,
+    }
+
+
+@mcp.tool()
+async def get_context_summary(session_id: str, max_memories: int = 20) -> dict:
+    """TinyBrain: Produce a compact context packet for LLM coding/security agents."""
+    database = await get_db()
+    session = await database.get_session(session_id)
+    if not session:
+        return {"error": f"Session not found: {session_id}"}
+    memories = await database.search_memories(session_id=session_id, limit=100000)
+    memories.sort(key=lambda m: (m.priority, m.confidence, m.updated_at), reverse=True)
+    tag_counts = Counter(tag for m in memories for tag in m.tags)
+    return {
+        "session": session.model_dump(mode="json"),
+        "memory_count": len(memories),
+        "top_tags": [{"tag": tag, "count": count} for tag, count in tag_counts.most_common(15)],
+        "high_signal_memories": [_memory_preview(m) for m in memories[:max_memories]],
+    }
+
+
+@mcp.tool()
+async def get_detailed_memory_info(memory_id: str) -> dict:
+    """TinyBrain: Return a memory with related entries and similarity hints."""
+    database = await get_db()
+    memory = await database.get_memory(memory_id)
+    if not memory:
+        return {"error": f"Memory not found: {memory_id}"}
+    related = await database.get_related_memories(memory_id, limit=25)
+    similar = await find_similar_memories(memory_id=memory_id, threshold=0.35, limit=10)
+    return {
+        "memory": memory.model_dump(mode="json"),
+        "related_memories": [_memory_preview(m) for m in related],
+        "similar_memories": similar.get("matches", []),
+    }
+
+
+@mcp.tool()
+async def get_security_templates() -> dict:
+    """TinyBrain: List built-in security memory templates."""
+    return {"templates": SECURITY_TEMPLATES}
+
+
+@mcp.tool()
+async def create_memory_from_template(
+    session_id: str,
+    template_name: str,
+    title: str,
+    values: dict,
+    priority: Optional[int] = None,
+    confidence: Optional[float] = None,
+    tags: Optional[list[str]] = None,
+) -> dict:
+    """TinyBrain: Create a memory from a built-in security template."""
+    template = SECURITY_TEMPLATES.get(template_name)
+    if not template:
+        return {"error": f"Unknown template: {template_name}", "valid_templates": list(SECURITY_TEMPLATES)}
+    try:
+        content = template["content"].format(**values)
+    except KeyError as exc:
+        return {"error": f"Missing template value: {exc.args[0]}"}
+    return await store_memory(
+        session_id=session_id,
+        title=title,
+        content=content,
+        category=template["category"],
+        priority=priority if priority is not None else template["priority"],
+        confidence=confidence if confidence is not None else template["confidence"],
+        tags=(template["tags"] + (tags or [])),
+    )
+
+
+@mcp.tool()
+async def mark_notification_read(notification_id: str, read: bool = True) -> dict:
+    """TinyBrain: Mark a notification as read or unread."""
+    database = await get_db()
+    return {"success": await database.mark_notification_read(notification_id, read)}
+
+
+@mcp.tool()
+async def check_high_priority_memories(
+    session_id: Optional[str] = None,
+    min_priority: int = 8,
+    min_confidence: float = 0.8,
+    limit: int = 50,
+) -> dict:
+    """TinyBrain: Find high-priority, high-confidence memories needing attention."""
+    database = await get_db()
+    memories = await database.search_memories(
+        session_id=session_id,
+        min_priority=min_priority,
+        limit=100000,
+    )
+    matches = [m for m in memories if m.confidence >= min_confidence]
+    matches.sort(key=lambda m: (m.priority, m.confidence), reverse=True)
+    return {"memories": [_memory_preview(m) for m in matches[:limit]], "count": len(matches)}
+
+
+@mcp.tool()
+async def check_duplicate_memories(
+    session_id: Optional[str] = None,
+    threshold: float = 0.9,
+    limit: int = 50,
+) -> dict:
+    """TinyBrain: Alias for check_duplicates for Go-tool compatibility."""
+    return await check_duplicates(session_id=session_id, threshold=threshold, limit=limit)
+
+
+@mcp.tool()
+async def get_system_diagnostics() -> dict:
+    """TinyBrain: Return storage and tool-surface diagnostics."""
+    database = await get_db()
+    memories = await database.search_memories(limit=100000)
+    sessions = await database.list_sessions(limit=100000)
+    relationships = await database.list_relationships(limit=100000)
+    notifications = await database.get_notifications(limit=100000)
+    return {
+        "status": "healthy",
+        "database": "cogdb",
+        "counts": {
+            "sessions": len(sessions),
+            "memories": len(memories),
+            "relationships": len(relationships),
+            "notifications": len(notifications),
+        },
+        "storage": {
+            "cog_home": database.db_path.name,
+            "cog_path_prefix": str(database.db_path.parent),
+        },
+        "feature_notes": {
+            "duckdb": "Recommended as an analytical sidecar for CVE/ATT&CK/CWE datasets, not as the primary graph memory store.",
+            "embeddings": "Current embedding tools are deterministic local token vectors; neural providers can be added behind the same MCP contract.",
+        },
+        "timestamp": datetime.utcnow().isoformat(),
     }
 
 

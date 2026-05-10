@@ -10,7 +10,6 @@ Also re-exports inner-layer components for convenience:
 
 import asyncio
 import json
-import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -18,19 +17,13 @@ from typing import Any, Optional
 from cog.torque import Graph
 from loguru import logger
 
-from tinybrain.models import (
-    ContextSnapshot,
-    Memory,
-    Notification,
-    Relationship,
-    Session,
-    TaskProgress,
-)
+from tinybrain.models import Memory, Notification, Relationship, Session
 
 # Re-export inner layer components so `from tinybrain.database import CogDBBackend` works
 # when running from the project root (where outer tinybrain/ shadows inner tinybrain/tinybrain/).
 try:
-    from tinybrain.tinybrain.database.base import Database as _InnerDatabase, DatabaseBackend
+    from tinybrain.tinybrain.database.base import Database as _InnerDatabase
+    from tinybrain.tinybrain.database.base import DatabaseBackend
     from tinybrain.tinybrain.database.cogdb_backend import CogDBBackend
 except ImportError:
     try:
@@ -336,6 +329,45 @@ class Database:
         all_data = await asyncio.to_thread(_get_related)
         return [Memory(**d) for d in all_data[:limit]]
 
+    async def list_relationships(
+        self,
+        source_memory_id: Optional[str] = None,
+        target_memory_id: Optional[str] = None,
+        relationship_type: Optional[str] = None,
+        limit: int = 1000,
+    ) -> list[Relationship]:
+        """List relationships with optional endpoint/type filters."""
+
+        def _list() -> list[dict]:
+            if source_memory_id:
+                ids = self._list_ids_by_field(
+                    "source_entry_id", source_memory_id, self.REL_PREFIX
+                )
+            elif target_memory_id:
+                ids = self._list_ids_by_field(
+                    "target_entry_id", target_memory_id, self.REL_PREFIX
+                )
+            elif relationship_type:
+                ids = self._list_ids_by_field(
+                    "relationship_type", relationship_type, self.REL_PREFIX
+                )
+            else:
+                ids = self._list_ids_by_type("relationship")
+            return self._fetch_entities(ids)
+
+        all_data = await asyncio.to_thread(_list)
+        relationships = []
+        for d in all_data:
+            if source_memory_id and d.get("source_entry_id") != source_memory_id:
+                continue
+            if target_memory_id and d.get("target_entry_id") != target_memory_id:
+                continue
+            if relationship_type and d.get("relationship_type") != relationship_type:
+                continue
+            relationships.append(Relationship(**d))
+        relationships.sort(key=lambda r: r.created_at, reverse=True)
+        return relationships[:limit]
+
     # ── Session list/delete ─────────────────────────────────────────
 
     async def list_sessions(
@@ -426,3 +458,29 @@ class Database:
 
         notifications.sort(key=lambda n: n.created_at, reverse=True)
         return notifications[:limit]
+
+    async def mark_notification_read(self, notification_id: str, read: bool = True) -> bool:
+        """Mark a notification read/unread."""
+        entity_id = f"{self.NOTIF_PREFIX}{notification_id}"
+
+        def _update() -> bool:
+            old_data = self._get_entity_data(entity_id)
+            if not old_data:
+                return False
+            new_data = dict(old_data)
+            new_data["read"] = read
+            self._delete_entity(
+                entity_id,
+                "notification",
+                old_data,
+                ("session_id", "notification_type", "read"),
+            )
+            self._put_entity(
+                entity_id,
+                "notification",
+                new_data,
+                ("session_id", "notification_type", "read"),
+            )
+            return True
+
+        return await asyncio.to_thread(_update)

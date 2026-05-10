@@ -16,8 +16,8 @@ TinyBrain is a modern Python implementation of a comprehensive memory storage sy
 ### 🚀 Modern Python Stack
 - **FastMCP**: Latest MCP protocol server framework
 - **FastAPI**: High-performance web interface
-- **Async SQLite**: High-performance async database with aiosqlite
-- **FTS5 Search**: Full-text search with SQLite FTS5
+- **CogDB**: Local graph storage for memories, relationships, sessions, and notifications
+- **Deterministic Local Similarity**: Offline token-vector search, deduplication, and embedding-shaped features
 - **Typer CLI**: Modern CLI with rich features
 - **Loguru**: Beautiful, structured logging
 - **Pydantic**: Type-safe models and settings
@@ -32,10 +32,9 @@ TinyBrain is a modern Python implementation of a comprehensive memory storage sy
 
 ### 🔍 Intelligence Features
 - **Tag-Based Linking**: Discover related memories through shared tags
-- **MITRE ATT&CK Integration**: Complete framework with 14 tactics and 200+ techniques (planned)
-- **NVD Integration**: National Vulnerability Database access (planned)
-- **CWE Patterns**: Common Weakness Enumeration (planned)
-- **OWASP Compliance**: OWASP Top 10 2021 integration (planned)
+- **Similarity & Duplicate Detection**: Find likely related or duplicate observations without an external embedding service
+- **MITRE/CVE/CWE/OWASP Ready**: Template and tagging conventions support standard security frameworks and custom in-house frameworks
+- **Import/Export**: Portable session export/import for moving context between agents, tools, and assessment environments
 
 ## 🚀 Quick Start
 
@@ -89,8 +88,8 @@ tinybrain init
 # Start the MCP server
 tinybrain serve
 
-# Start with custom database path
-tinybrain serve --db-path ~/.tinybrain/custom.db
+# Start with custom CogDB path
+tinybrain serve --cog-path ~/.tinybrain/custom
 
 # Start the web interface
 tinybrain web
@@ -111,7 +110,8 @@ TinyBrain uses environment variables and `.env` files for configuration:
 
 ```bash
 # Database
-TINYBRAIN_DB_PATH=~/.tinybrain/memory.db
+TINYBRAIN_COG_HOME=tinybrain
+TINYBRAIN_COG_PATH_PREFIX=~/.tinybrain
 
 # Logging
 TINYBRAIN_LOG_LEVEL=INFO
@@ -140,7 +140,8 @@ Add to your Claude Desktop configuration (`~/Library/Application Support/Claude/
       "command": "tinybrain",
       "args": ["serve"],
       "env": {
-        "TINYBRAIN_DB_PATH": "~/.tinybrain/memory.db",
+        "TINYBRAIN_COG_HOME": "tinybrain",
+        "TINYBRAIN_COG_PATH_PREFIX": "~/.tinybrain",
         "TINYBRAIN_LOG_LEVEL": "INFO"
       }
     }
@@ -160,14 +161,15 @@ If you're using UV and want to ensure the correct environment:
       "args": ["run", "tinybrain", "serve"],
       "cwd": "/path/to/tinybrain-python",
       "env": {
-        "TINYBRAIN_DB_PATH": "~/.tinybrain/memory.db"
+        "TINYBRAIN_COG_HOME": "tinybrain",
+        "TINYBRAIN_COG_PATH_PREFIX": "~/.tinybrain"
       }
     }
   }
 }
 ```
 
-## 🛠️ MCP Tools (20 Total)
+## 🛠️ MCP Tools (38 Total)
 
 TinyBrain provides comprehensive MCP tools for memory management:
 
@@ -207,6 +209,25 @@ TinyBrain provides comprehensive MCP tools for memory management:
 ### System (1 tool)
 - `health_check` - Perform system health checks
 
+### Parity & Analysis Tools (18 tools)
+- `calculate_similarity` - Calculate deterministic token similarity between text blocks
+- `generate_embedding` - Generate stable local feature vectors for offline matching and tests
+- `find_similar_memories` - Find memories similar to a source memory
+- `semantic_search` - Rank memories by local token-vector similarity
+- `check_duplicates` / `check_duplicate_memories` - Detect likely duplicate observations
+- `batch_create_memories` - Create multiple memory entries in one call
+- `batch_update_memories` - Update multiple memory entries in one call
+- `batch_delete_memories` - Delete multiple memory entries in one call
+- `export_session_data` - Export a session with memories and relationships
+- `import_session_data` - Import exported session data, optionally remapping IDs
+- `get_context_summary` - Produce compact high-signal context for LLM agents
+- `get_detailed_memory_info` - Return a memory with related and similar entries
+- `get_security_templates` - List built-in security templates
+- `create_memory_from_template` - Create a memory from a security template
+- `mark_notification_read` - Mark notifications read or unread
+- `check_high_priority_memories` - Find high-priority, high-confidence memories
+- `get_system_diagnostics` - Return storage and tool-surface diagnostics
+
 ## 🎯 Quick Start Workflow
 
 ```python
@@ -244,14 +265,11 @@ create_relationship(
 
 ### Database Schema
 
-TinyBrain uses SQLite with an optimized schema:
+TinyBrain uses CogDB as a local graph store:
 
 - **sessions** - Security assessment sessions
-- **memory_entries** - Individual pieces of information
-- **memory_entries_fts** - FTS5 full-text search index
+- **memories** - Individual pieces of information
 - **relationships** - Links between memory entries
-- **task_progress** - Multi-stage task tracking
-- **context_snapshots** - Saved context states
 - **notifications** - Real-time alerts
 
 ### Key Design Principles
@@ -259,8 +277,9 @@ TinyBrain uses SQLite with an optimized schema:
 1. **Async-First**: All database operations are async for high performance
 2. **Type-Safe**: Pydantic models ensure data integrity
 3. **Graph-Style Queries**: Relationship traversal for exploit chains
-4. **Full-Text Search**: FTS5 for semantic search capabilities
+4. **Offline Similarity**: Deterministic token vectors support deduplication and semantic-ish ranking without sending assessment data to a model provider
 5. **Production-Ready**: Structured logging, error handling, and monitoring
+6. **Framework-Extensible**: Tags, templates, and session exports support CWE, CVE, MITRE ATT&CK, Atomic Red Team, and custom in-house frameworks
 
 ## 🧪 Development
 
@@ -294,12 +313,11 @@ tinybrain-python/
 │   ├── __init__.py
 │   ├── cli.py              # Typer CLI
 │   ├── config.py           # Pydantic settings
-│   ├── logging.py          # Loguru configuration
+│   ├── log_config.py       # Loguru configuration
 │   ├── models/
 │   │   └── __init__.py     # Pydantic models
 │   ├── database/
-│   │   ├── __init__.py     # Async SQLite backend
-│   │   └── schema.py       # Database schema
+│   │   └── __init__.py     # CogDB backend
 │   ├── mcp/
 │   │   └── __init__.py     # FastMCP server
 │   └── services/
@@ -312,7 +330,7 @@ tinybrain-python/
 
 ## 🔐 Security Data Integration
 
-TinyBrain includes downloaders for security datasets:
+TinyBrain includes early download/query services for security datasets. The current MCP surface is optimized for storing, tagging, templating, and retrieving framework-aligned assessment memories; a DuckDB analytical sidecar is a good next step for larger CVE/CWE/MITRE/Atomic/custom-framework datasets.
 
 ```python
 from tinybrain.services import SecurityDataDownloader
@@ -331,6 +349,12 @@ await downloader.download_owasp_top10()
 # Download all datasets
 await downloader.download_all()
 ```
+
+## 🧭 Roadmap Notes
+
+- **DuckDB sidecar**: Keep CogDB as the primary memory/relationship store and add DuckDB for analytical security datasets where columnar scans and local joins are valuable.
+- **Mempalace evaluation**: The experimental `mempalace.yaml` and `entities.json` files were removed from the repo for now. Revisit mempalace-style entity memory later as a candidate memory technology once the design is cleaner and can be compared against CogDB/DuckDB on accuracy, portability, and agent ergonomics.
+- **Librarian agent**: Add an optional agent that catalogs and links observations while preserving the original entry text and separating derived analysis from raw evidence.
 
 ## 📝 Example Usage
 
