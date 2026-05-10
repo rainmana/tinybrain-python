@@ -3,7 +3,7 @@
 ## Current Status
 
 - **Original Go version**: Approximately 40 MCP tools in the published feature set.
-- **Python version**: 38 MCP tools currently registered by FastMCP.
+- **Python version**: 40 MCP tools currently registered by FastMCP.
 - **Testing**: Full pytest suite passes, and a live FastMCP `call_tool` smoke test exercises the new MCP parity tools against an isolated temporary CogDB database.
 
 The Python implementation now covers the major day-to-day parity surface: memory CRUD, sessions, relationships, tags, notifications, statistics, duplicate detection, local similarity search, batch operations, session import/export, templates, context summaries, and diagnostics.
@@ -39,6 +39,7 @@ The Python implementation now covers the major day-to-day parity surface: memory
 | `create_session` | Implemented |
 | `get_session` | Implemented |
 | `list_sessions` | Implemented |
+| `delete_session` | Implemented |
 | `create_relationship` | Implemented |
 | `get_related_memories` | Implemented |
 | `get_context_summary` | Implemented |
@@ -79,6 +80,7 @@ These tools intentionally avoid network calls or external embedding providers, w
 | `check_duplicate_memories` | Implemented as compatibility alias |
 | `health_check` | Implemented |
 | `get_system_diagnostics` | Implemented |
+| `cleanup_orphan_relationships` | Implemented |
 
 ## Remaining Gaps
 
@@ -86,7 +88,7 @@ These tools intentionally avoid network calls or external embedding providers, w
 |------|-------|
 | Task progress MCP tools | The nested inner backend has task-progress support, but the active outer MCP module does not currently expose task-progress tools. |
 | Context snapshot MCP tools | The nested inner backend has snapshot support, but the active outer MCP module exposes context summaries and import/export instead. |
-| Cleanup MCP tools | CLI cleanup exists; MCP cleanup tools are still a useful parity target. |
+| Age/priority cleanup MCP tools | CLI cleanup exists; age, low-priority, and unused-memory MCP cleanup tools are still useful parity targets. |
 | Security dataset persistence/querying | Download/query services exist in early form. Larger CVE/CWE/MITRE/Atomic/custom-framework datasets should likely use a DuckDB analytical sidecar. |
 | Neural semantic search | Current similarity tooling is deterministic and offline. Provider-backed embeddings can be added later without changing the public tool names. |
 
