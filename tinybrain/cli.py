@@ -1,6 +1,7 @@
 """Typer CLI for TinyBrain."""
 
 import asyncio
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -9,7 +10,7 @@ from loguru import logger
 
 from tinybrain.config import settings
 from tinybrain.database import Database
-from tinybrain.logging import setup_logging
+from tinybrain.log_config import setup_logging
 
 app = typer.Typer(
     name="tinybrain",
@@ -17,14 +18,16 @@ app = typer.Typer(
     add_completion=False,
 )
 
+_default_cog_path = Path(settings.cog_path_prefix) / settings.cog_home
+
 
 @app.command()
 def serve(
-    db_path: Path = typer.Option(
-        settings.db_path,
-        "--db-path",
+    cog_path: Path = typer.Option(
+        _default_cog_path,
+        "--cog-path",
         "-d",
-        help="Path to SQLite database",
+        help="Path to CogDB data directory",
     ),
     log_level: str = typer.Option(
         settings.log_level,
@@ -35,83 +38,81 @@ def serve(
 ) -> None:
     """Start the TinyBrain MCP server."""
     import logging
-    import os
-    
-    # Disable all console output for MCP mode
+
     os.environ["FASTMCP_LOG_LEVEL"] = "CRITICAL"
-    
-    # Suppress all logging to console
+
     logging.basicConfig(level=logging.CRITICAL)
     for logger_name in ["fastmcp", "mcp", "httpx", "httpcore"]:
         logging.getLogger(logger_name).setLevel(logging.CRITICAL)
         logging.getLogger(logger_name).propagate = False
-    
-    # Update settings
-    settings.db_path = db_path
+
+    settings.cog_path_prefix = str(cog_path.parent)
+    settings.cog_home = cog_path.name
     settings.log_level = log_level
 
-    # Setup logging in MCP mode (no console output)
     setup_logging(mcp_mode=True)
 
-    # Import and run the MCP server without banner
     from tinybrain.mcp import mcp
+
     mcp.run(show_banner=False)
 
 
 @app.command()
 def init(
-    db_path: Path = typer.Option(
-        settings.db_path,
-        "--db-path",
+    cog_path: Path = typer.Option(
+        _default_cog_path,
+        "--cog-path",
         "-d",
-        help="Path to SQLite database",
+        help="Path to CogDB data directory",
     ),
 ) -> None:
     """Initialize the TinyBrain database."""
     setup_logging()
 
     async def init_db():
-        db = Database(db_path)
+        db = Database(cog_path)
         await db.initialize()
         await db.close()
-        logger.info(f"Database initialized: {db_path}")
+        logger.info(f"CogDB initialized: {cog_path}")
 
     asyncio.run(init_db())
-    typer.echo(f"✓ Database initialized: {db_path}")
+    typer.echo(f"Database initialized: {cog_path}")
 
 
 @app.command()
 def stats(
-    db_path: Path = typer.Option(
-        settings.db_path,
-        "--db-path",
+    cog_path: Path = typer.Option(
+        _default_cog_path,
+        "--cog-path",
         "-d",
-        help="Path to SQLite database",
+        help="Path to CogDB data directory",
     ),
 ) -> None:
     """Show database statistics."""
     setup_logging()
 
     async def show_stats():
-        db = Database(db_path)
-        await db.connect()
+        db = Database(cog_path)
+        await db.initialize()
 
-        # Get counts
-        cursor = await db._conn.execute("SELECT COUNT(*) FROM sessions")
-        sessions = (await cursor.fetchone())[0]
+        memories = await db.search_memories(limit=100000)
+        session_ids = {m.session_id for m in memories}
 
-        cursor = await db._conn.execute("SELECT COUNT(*) FROM memory_entries")
-        memories = (await cursor.fetchone())[0]
+        rel_count = 0
+        if db._graph:
 
-        cursor = await db._conn.execute("SELECT COUNT(*) FROM relationships")
-        relationships = (await cursor.fetchone())[0]
+            def _count():
+                result = db._graph.v().has("_type", "relationship").all()
+                return len(result.get("result", [])) if result else 0
+
+            rel_count = await asyncio.to_thread(_count)
 
         await db.close()
 
-        typer.echo("\n📊 TinyBrain Statistics")
-        typer.echo(f"  Sessions: {sessions}")
-        typer.echo(f"  Memories: {memories}")
-        typer.echo(f"  Relationships: {relationships}")
+        typer.echo("\nTinyBrain Statistics")
+        typer.echo(f"  Sessions: {len(session_ids)}")
+        typer.echo(f"  Memories: {len(memories)}")
+        typer.echo(f"  Relationships: {rel_count}")
         typer.echo()
 
     asyncio.run(show_stats())
@@ -119,11 +120,11 @@ def stats(
 
 @app.command()
 def cleanup(
-    db_path: Path = typer.Option(
-        settings.db_path,
-        "--db-path",
+    cog_path: Path = typer.Option(
+        _default_cog_path,
+        "--cog-path",
         "-d",
-        help="Path to SQLite database",
+        help="Path to CogDB data directory",
     ),
     max_age_days: int = typer.Option(
         30,
@@ -141,28 +142,29 @@ def cleanup(
     setup_logging()
 
     async def cleanup_old():
-        db = Database(db_path)
-        await db.connect()
-
         from datetime import timedelta
 
-        cutoff = datetime.utcnow() - timedelta(days=max_age_days)
+        db = Database(cog_path)
+        await db.initialize()
 
-        cursor = await db._conn.execute(
-            "SELECT COUNT(*) FROM memory_entries WHERE created_at < ?",
-            (cutoff.isoformat(),),
-        )
-        count = (await cursor.fetchone())[0]
+        cutoff = datetime.utcnow() - timedelta(days=max_age_days)
+        all_memories = await db.search_memories(limit=100000)
+        old_memories = [
+            m
+            for m in all_memories
+            if m.created_at < cutoff
+        ]
 
         if dry_run:
-            typer.echo(f"Would delete {count} memories older than {max_age_days} days")
-        else:
-            await db._conn.execute(
-                "DELETE FROM memory_entries WHERE created_at < ?",
-                (cutoff.isoformat(),),
+            typer.echo(
+                f"Would delete {len(old_memories)} memories older than {max_age_days} days"
             )
-            await db._conn.commit()
-            typer.echo(f"✓ Deleted {count} memories older than {max_age_days} days")
+        else:
+            for m in old_memories:
+                await db.delete_memory(m.id)
+            typer.echo(
+                f"Deleted {len(old_memories)} memories older than {max_age_days} days"
+            )
 
         await db.close()
 
@@ -173,24 +175,24 @@ def cleanup(
 def web(
     host: str = typer.Option("127.0.0.1", help="Host to bind to"),
     port: int = typer.Option(8080, help="Port to bind to"),
-    db_path: Path = typer.Option(
-        settings.db_path,
-        "--db-path",
+    cog_path: Path = typer.Option(
+        _default_cog_path,
+        "--cog-path",
         "-d",
-        help="Path to SQLite database",
+        help="Path to CogDB data directory",
     ),
 ) -> None:
     """Start the web interface."""
     import uvicorn
-    import os
-    
-    # Set database path
-    os.environ["TINYBRAIN_DB_PATH"] = str(db_path)
-    
+
+    os.environ["TINYBRAIN_COG_HOME"] = cog_path.name
+    os.environ["TINYBRAIN_COG_PATH_PREFIX"] = str(cog_path.parent)
+
     setup_logging()
     logger.info(f"Starting web interface at http://{host}:{port}")
-    
+
     from tinybrain.web import app as web_app
+
     uvicorn.run(web_app, host=host, port=port)
 
 

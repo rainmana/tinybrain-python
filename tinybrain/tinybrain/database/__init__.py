@@ -1,8 +1,6 @@
 """Database layer for TinyBrain."""
 
-from tinybrain.database.base import Database, DatabaseBackend
-from tinybrain.database.sqlite_backend import SQLiteBackend
-from tinybrain.database.chromadb_backend import ChromaDBBackend
+from .base import Database, DatabaseBackend
+from .cogdb_backend import CogDBBackend
 
-__all__ = ["Database", "DatabaseBackend", "SQLiteBackend", "ChromaDBBackend"]
-
+__all__ = ["Database", "DatabaseBackend", "CogDBBackend"]

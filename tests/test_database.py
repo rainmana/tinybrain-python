@@ -1,8 +1,9 @@
-"""Tests for TinyBrain database."""
+"""Tests for TinyBrain outer database layer (CogDB)."""
 
 import pytest
-from pathlib import Path
+import shutil
 import tempfile
+from pathlib import Path
 
 from tinybrain.database import Database
 from tinybrain.models import Memory, MemoryCategory, Session, SessionStatus, TaskType
@@ -10,18 +11,18 @@ from tinybrain.models import Memory, MemoryCategory, Session, SessionStatus, Tas
 
 @pytest.fixture
 async def db():
-    """Create a temporary database for testing."""
-    with tempfile.TemporaryDirectory() as tmpdir:
-        db_path = Path(tmpdir) / "test.db"
-        database = Database(db_path)
-        await database.initialize()
-        yield database
-        await database.close()
+    """Create a temporary CogDB database for testing."""
+    tmpdir = tempfile.mkdtemp()
+    db_path = Path(tmpdir) / "test_outer"
+    database = Database(db_path)
+    await database.initialize()
+    yield database
+    await database.close()
+    shutil.rmtree(tmpdir, ignore_errors=True)
 
 
 @pytest.mark.asyncio
 async def test_create_session(db):
-    """Test session creation."""
     session = Session(
         id="test_session",
         name="Test Session",
@@ -31,7 +32,6 @@ async def test_create_session(db):
     result = await db.create_session(session)
     assert result.id == "test_session"
 
-    # Retrieve and verify
     retrieved = await db.get_session("test_session")
     assert retrieved is not None
     assert retrieved.name == "Test Session"
@@ -39,8 +39,6 @@ async def test_create_session(db):
 
 @pytest.mark.asyncio
 async def test_create_memory(db):
-    """Test memory creation."""
-    # Create session first
     session = Session(
         id="test_session",
         name="Test Session",
@@ -49,7 +47,6 @@ async def test_create_memory(db):
     )
     await db.create_session(session)
 
-    # Create memory
     memory = Memory(
         id="test_memory",
         session_id="test_session",
@@ -63,7 +60,6 @@ async def test_create_memory(db):
     result = await db.create_memory(memory)
     assert result.id == "test_memory"
 
-    # Retrieve and verify
     retrieved = await db.get_memory("test_memory")
     assert retrieved is not None
     assert retrieved.title == "Test Memory"
@@ -72,8 +68,6 @@ async def test_create_memory(db):
 
 @pytest.mark.asyncio
 async def test_search_memories(db):
-    """Test memory search."""
-    # Create session
     session = Session(
         id="test_session",
         name="Test Session",
@@ -82,7 +76,6 @@ async def test_search_memories(db):
     )
     await db.create_session(session)
 
-    # Create memories
     for i in range(5):
         memory = Memory(
             id=f"test_memory_{i}",
@@ -96,10 +89,60 @@ async def test_search_memories(db):
         )
         await db.create_memory(memory)
 
-    # Search by session
     results = await db.search_memories(session_id="test_session")
     assert len(results) == 5
 
-    # Search by priority
     results = await db.search_memories(session_id="test_session", min_priority=8)
     assert len(results) == 2
+
+
+@pytest.mark.asyncio
+async def test_update_memory(db):
+    session = Session(
+        id="test_session",
+        name="Test Session",
+        task_type=TaskType.SECURITY_REVIEW,
+        status=SessionStatus.ACTIVE,
+    )
+    await db.create_session(session)
+
+    memory = Memory(
+        id="test_memory",
+        session_id="test_session",
+        title="Original",
+        content="Original content",
+        category=MemoryCategory.NOTE,
+        priority=3,
+    )
+    await db.create_memory(memory)
+
+    result = await db.update_memory("test_memory", {"title": "Updated", "priority": 9})
+    assert result is True
+
+    retrieved = await db.get_memory("test_memory")
+    assert retrieved.title == "Updated"
+    assert retrieved.priority == 9
+
+
+@pytest.mark.asyncio
+async def test_delete_memory(db):
+    session = Session(
+        id="test_session",
+        name="Test Session",
+        task_type=TaskType.SECURITY_REVIEW,
+        status=SessionStatus.ACTIVE,
+    )
+    await db.create_session(session)
+
+    memory = Memory(
+        id="test_memory",
+        session_id="test_session",
+        title="To Delete",
+        content="Content",
+        category=MemoryCategory.NOTE,
+    )
+    await db.create_memory(memory)
+
+    result = await db.delete_memory("test_memory")
+    assert result is True
+    assert await db.get_memory("test_memory") is None

@@ -17,10 +17,11 @@ class Settings(BaseSettings):
         case_sensitive=False,
     )
 
-    # Database
-    db_path: Path = Field(
-        default_factory=lambda: Path.home() / ".tinybrain" / "memory.db",
-        description="Path to SQLite database",
+    # CogDB
+    cog_home: str = Field(default="tinybrain", description="CogDB home directory name")
+    cog_path_prefix: Path = Field(
+        default_factory=lambda: Path.home() / ".tinybrain",
+        description="CogDB path prefix (parent directory for cog_home)",
     )
 
     # Logging

@@ -1,133 +1,191 @@
-"""Async SQLite database backend."""
+"""CogDB database backend for TinyBrain (outer layer).
 
+Provides a high-level Database class that uses CogDB as the storage engine.
+This layer accepts full model objects (Session, Memory, etc.) rather than
+CreateRequest objects used by the inner DatabaseBackend layer.
+
+Also re-exports inner-layer components for convenience:
+  from tinybrain.database import Database, CogDBBackend, DatabaseBackend
+"""
+
+import asyncio
 import json
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
-from uuid import uuid4
 
-import aiosqlite
+from cog.torque import Graph
 from loguru import logger
 
-from tinybrain.database.schema import SCHEMA
-from tinybrain.models import (
-    ContextSnapshot,
-    Memory,
-    Notification,
-    Relationship,
-    Session,
-    TaskProgress,
-)
+from tinybrain.models import Memory, Notification, Relationship, Session
+
+# Re-export inner layer components so `from tinybrain.database import CogDBBackend` works
+# when running from the project root (where outer tinybrain/ shadows inner tinybrain/tinybrain/).
+try:
+    from tinybrain.tinybrain.database.base import Database as _InnerDatabase
+    from tinybrain.tinybrain.database.base import DatabaseBackend
+    from tinybrain.tinybrain.database.cogdb_backend import CogDBBackend
+except ImportError:
+    try:
+        from tinybrain.database.base import DatabaseBackend
+        from tinybrain.database.cogdb_backend import CogDBBackend
+        _InnerDatabase = None
+    except ImportError:
+        DatabaseBackend = None  # type: ignore[assignment, misc]
+        CogDBBackend = None  # type: ignore[assignment, misc]
+        _InnerDatabase = None
+
+
+def _json_serial(obj: Any) -> str:
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    raise TypeError(f"Type {type(obj)} not serializable")
 
 
 class Database:
-    """Async SQLite database."""
+    """CogDB-backed database for TinyBrain."""
+
+    SESSION_PREFIX = "session:"
+    MEMORY_PREFIX = "memory:"
+    REL_PREFIX = "rel:"
+    TASK_PREFIX = "task:"
+    SNAPSHOT_PREFIX = "snapshot:"
+    NOTIF_PREFIX = "notif:"
 
     def __init__(self, db_path: Path):
         self.db_path = db_path
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
-        self._conn: Optional[aiosqlite.Connection] = None
+        self._graph: Optional[Graph] = None
 
     async def connect(self) -> None:
-        """Connect to database."""
-        self._conn = await aiosqlite.connect(str(self.db_path))
-        self._conn.row_factory = aiosqlite.Row
-        await self._conn.execute("PRAGMA foreign_keys = ON")
-        await self._conn.execute("PRAGMA journal_mode = WAL")
-        await self._conn.commit()
-        logger.info(f"Connected to database: {self.db_path}")
+        def _init() -> Graph:
+            return Graph(
+                "tinybrain",
+                cog_home=self.db_path.stem,
+                cog_path_prefix=str(self.db_path.parent),
+            )
+
+        self._graph = await asyncio.to_thread(_init)
+        logger.info(f"Connected to CogDB: {self.db_path.parent}")
 
     async def initialize(self) -> None:
-        """Initialize database schema."""
-        if not self._conn:
+        if not self._graph:
             await self.connect()
-        await self._conn.executescript(SCHEMA)
-        await self._conn.commit()
-        logger.info("Database schema initialized")
+        logger.info("CogDB initialized")
 
     async def close(self) -> None:
-        """Close database connection."""
-        if self._conn:
-            await self._conn.close()
-            logger.info("Database connection closed")
+        if self._graph:
+            try:
+                await asyncio.to_thread(self._graph.sync)
+            except Exception:
+                pass
+            self._graph = None
+            logger.info("CogDB connection closed")
 
-    # Session operations
-    async def create_session(self, session: Session) -> Session:
-        """Create a new session."""
-        await self._conn.execute(
-            """INSERT INTO sessions (id, name, description, task_type, status, created_at, updated_at, metadata)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                session.id,
-                session.name,
-                session.description,
-                session.task_type.value,
-                session.status.value,
-                session.created_at.isoformat(),
-                session.updated_at.isoformat(),
-                json.dumps(session.metadata) if session.metadata else None,
-            ),
+    # ── Private helpers ──────────────────────────────────────────────
+
+    def _put_entity(
+        self, entity_id: str, entity_type: str, data: dict, index_fields: tuple[str, ...]
+    ) -> None:
+        triples = [
+            (entity_id, "_type", entity_type),
+            (entity_id, "_data", json.dumps(data, default=_json_serial)),
+        ]
+        for field in index_fields:
+            val = data.get(field)
+            if val is not None:
+                if isinstance(val, (list, dict)):
+                    val = json.dumps(val, default=_json_serial)
+                triples.append((entity_id, field, str(val)))
+        self._graph.put_batch(triples)
+
+    def _get_entity_data(self, entity_id: str) -> Optional[dict]:
+        result = self._graph.v(entity_id).out("_data").all()
+        if not result or not result.get("result"):
+            return None
+        return json.loads(result["result"][0]["id"])
+
+    def _delete_entity(
+        self, entity_id: str, entity_type: str, data: dict, index_fields: tuple[str, ...]
+    ) -> None:
+        self._graph.delete(entity_id, "_type", entity_type)
+        self._graph.delete(entity_id, "_data", json.dumps(data, default=_json_serial))
+        for field in index_fields:
+            val = data.get(field)
+            if val is not None:
+                if isinstance(val, (list, dict)):
+                    val = json.dumps(val, default=_json_serial)
+                try:
+                    self._graph.delete(entity_id, field, str(val))
+                except Exception:
+                    pass
+
+    def _list_ids_by_type(self, entity_type: str) -> list[str]:
+        result = self._graph.v().has("_type", entity_type).all()
+        if not result or not result.get("result"):
+            return []
+        return [item["id"] for item in result["result"]]
+
+    def _list_ids_by_field(self, field: str, value: str, prefix: str) -> list[str]:
+        result = (
+            self._graph.v()
+            .has(field, value)
+            .filter(func=lambda x, p=prefix: x.startswith(p))
+            .all()
         )
-        await self._conn.commit()
+        if not result or not result.get("result"):
+            return []
+        return [item["id"] for item in result["result"]]
+
+    def _fetch_entities(self, entity_ids: list[str]) -> list[dict]:
+        entities = []
+        for eid in entity_ids:
+            data = self._get_entity_data(eid)
+            if data:
+                entities.append(data)
+        return entities
+
+    # ── Session operations ───────────────────────────────────────────
+
+    async def create_session(self, session: Session) -> Session:
+        entity_id = f"{self.SESSION_PREFIX}{session.id}"
+        data = json.loads(session.model_dump_json())
+
+        await asyncio.to_thread(
+            self._put_entity, entity_id, "session", data, ("status", "task_type")
+        )
         logger.info(f"Created session: {session.id}")
         return session
 
     async def get_session(self, session_id: str) -> Optional[Session]:
-        """Get session by ID."""
-        cursor = await self._conn.execute(
-            "SELECT * FROM sessions WHERE id = ?", (session_id,)
-        )
-        row = await cursor.fetchone()
-        if not row:
+        entity_id = f"{self.SESSION_PREFIX}{session_id}"
+        data = await asyncio.to_thread(self._get_entity_data, entity_id)
+        if not data:
             return None
-        return Session(
-            id=row["id"],
-            name=row["name"],
-            description=row["description"],
-            task_type=row["task_type"],
-            status=row["status"],
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
-            metadata=json.loads(row["metadata"]) if row["metadata"] else None,
-        )
+        return Session(**data)
 
-    # Memory operations
+    # ── Memory operations ────────────────────────────────────────────
+
     async def create_memory(self, memory: Memory) -> Memory:
-        """Create a new memory entry."""
-        await self._conn.execute(
-            """INSERT INTO memory_entries 
-               (id, session_id, title, content, content_type, category, priority, confidence, 
-                tags, source, created_at, updated_at, accessed_at, access_count)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                memory.id,
-                memory.session_id,
-                memory.title,
-                memory.content,
-                memory.content_type.value,
-                memory.category.value,
-                memory.priority,
-                memory.confidence,
-                json.dumps(memory.tags),
-                memory.source,
-                memory.created_at.isoformat(),
-                memory.updated_at.isoformat(),
-                memory.accessed_at.isoformat(),
-                memory.access_count,
-            ),
+        entity_id = f"{self.MEMORY_PREFIX}{memory.id}"
+        data = json.loads(memory.model_dump_json())
+
+        await asyncio.to_thread(
+            self._put_entity,
+            entity_id,
+            "memory",
+            data,
+            ("session_id", "category", "priority", "content_type"),
         )
-        await self._conn.commit()
         logger.info(f"Created memory: {memory.id}")
         return memory
 
     async def get_memory(self, memory_id: str) -> Optional[Memory]:
-        """Get memory by ID."""
-        cursor = await self._conn.execute(
-            "SELECT * FROM memory_entries WHERE id = ?", (memory_id,)
-        )
-        row = await cursor.fetchone()
-        if not row:
+        entity_id = f"{self.MEMORY_PREFIX}{memory_id}"
+        data = await asyncio.to_thread(self._get_entity_data, entity_id)
+        if not data:
             return None
-        return self._row_to_memory(row)
+        return Memory(**data)
 
     async def search_memories(
         self,
@@ -137,190 +195,292 @@ class Database:
         min_priority: Optional[int] = None,
         limit: int = 20,
     ) -> list[Memory]:
-        """Search memories with filters."""
-        conditions = []
-        params = []
-
-        if query:
-            # FTS5 search
-            cursor = await self._conn.execute(
-                """SELECT m.* FROM memory_entries m
-                   JOIN memory_entries_fts fts ON m.rowid = fts.rowid
-                   WHERE memory_entries_fts MATCH ?
-                   ORDER BY rank LIMIT ?""",
-                (query, limit),
-            )
-        else:
-            # Regular search with filters
+        def _search() -> list[dict]:
             if session_id:
-                conditions.append("session_id = ?")
-                params.append(session_id)
-            if category:
-                conditions.append("category = ?")
-                params.append(category)
-            if min_priority is not None:
-                conditions.append("priority >= ?")
-                params.append(min_priority)
+                ids = self._list_ids_by_field("session_id", session_id, self.MEMORY_PREFIX)
+            elif category:
+                ids = self._list_ids_by_field("category", category, self.MEMORY_PREFIX)
+            else:
+                ids = self._list_ids_by_type("memory")
+            return self._fetch_entities(ids)
 
-            where_clause = " AND ".join(conditions) if conditions else "1=1"
-            cursor = await self._conn.execute(
-                f"SELECT * FROM memory_entries WHERE {where_clause} ORDER BY created_at DESC LIMIT ?",
-                (*params, limit),
-            )
+        all_data = await asyncio.to_thread(_search)
+        query_lower = query.lower() if query else None
 
-        rows = await cursor.fetchall()
-        return [self._row_to_memory(row) for row in rows]
+        memories = []
+        for d in all_data:
+            if session_id and d.get("session_id") != session_id:
+                continue
+            if category and d.get("category") != category:
+                continue
+            if min_priority is not None and d.get("priority", 0) < min_priority:
+                continue
+            if query_lower:
+                title = (d.get("title") or "").lower()
+                content = (d.get("content") or "").lower()
+                tags_str = " ".join(d.get("tags", []) if isinstance(d.get("tags"), list) else []).lower()
+                if query_lower not in title and query_lower not in content and query_lower not in tags_str:
+                    continue
+            memories.append(Memory(**d))
+
+        memories.sort(key=lambda m: m.created_at, reverse=True)
+        return memories[:limit]
 
     async def update_memory(self, memory_id: str, updates: dict[str, Any]) -> bool:
-        """Update memory entry."""
-        set_clauses = []
-        params = []
-        for key, value in updates.items():
-            if key in ["tags"]:
-                value = json.dumps(value)
-            set_clauses.append(f"{key} = ?")
-            params.append(value)
+        entity_id = f"{self.MEMORY_PREFIX}{memory_id}"
 
-        if not set_clauses:
-            return False
+        def _update() -> bool:
+            old_data = self._get_entity_data(entity_id)
+            if not old_data:
+                return False
+            new_data = dict(old_data)
+            for key, value in updates.items():
+                new_data[key] = value
+            new_data["updated_at"] = datetime.utcnow().isoformat()
 
-        params.append(memory_id)
-        await self._conn.execute(
-            f"UPDATE memory_entries SET {', '.join(set_clauses)} WHERE id = ?", params
-        )
-        await self._conn.commit()
-        logger.info(f"Updated memory: {memory_id}")
-        return True
+            self._delete_entity(
+                entity_id, "memory", old_data, ("session_id", "category", "priority", "content_type")
+            )
+            self._put_entity(
+                entity_id, "memory", new_data, ("session_id", "category", "priority", "content_type")
+            )
+            return True
+
+        result = await asyncio.to_thread(_update)
+        if result:
+            logger.info(f"Updated memory: {memory_id}")
+        return result
 
     async def delete_memory(self, memory_id: str) -> bool:
-        """Delete memory entry."""
-        cursor = await self._conn.execute(
-            "DELETE FROM memory_entries WHERE id = ?", (memory_id,)
-        )
-        await self._conn.commit()
-        deleted = cursor.rowcount > 0
-        if deleted:
-            logger.info(f"Deleted memory: {memory_id}")
-        return deleted
+        entity_id = f"{self.MEMORY_PREFIX}{memory_id}"
 
-    # Relationship operations
+        def _delete() -> bool:
+            data = self._get_entity_data(entity_id)
+            if not data:
+                return False
+            self._delete_entity(
+                entity_id, "memory", data, ("session_id", "category", "priority", "content_type")
+            )
+            return True
+
+        result = await asyncio.to_thread(_delete)
+        if result:
+            logger.info(f"Deleted memory: {memory_id}")
+        return result
+
+    # ── Relationship operations ──────────────────────────────────────
+
     async def create_relationship(self, relationship: Relationship) -> Relationship:
-        """Create a relationship."""
-        await self._conn.execute(
-            """INSERT INTO relationships 
-               (id, source_entry_id, target_entry_id, relationship_type, strength, description, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (
-                relationship.id,
-                relationship.source_entry_id,
-                relationship.target_entry_id,
+        entity_id = f"{self.REL_PREFIX}{relationship.id}"
+        data = json.loads(relationship.model_dump_json())
+
+        def _create() -> None:
+            self._put_entity(
+                entity_id,
+                "relationship",
+                data,
+                ("source_entry_id", "target_entry_id", "relationship_type"),
+            )
+            self._graph.put(
+                f"{self.MEMORY_PREFIX}{relationship.source_entry_id}",
                 relationship.relationship_type.value,
-                relationship.strength,
-                relationship.description,
-                relationship.created_at.isoformat(),
-            ),
-        )
-        await self._conn.commit()
+                f"{self.MEMORY_PREFIX}{relationship.target_entry_id}",
+            )
+
+        await asyncio.to_thread(_create)
         logger.info(f"Created relationship: {relationship.id}")
         return relationship
 
     async def get_related_memories(
-        self, memory_id: str, relationship_type: Optional[str] = None, limit: int = 10
+        self,
+        memory_id: str,
+        relationship_type: Optional[str] = None,
+        limit: int = 10,
     ) -> list[Memory]:
-        """Get related memories."""
-        if relationship_type:
-            cursor = await self._conn.execute(
-                """SELECT m.* FROM memory_entries m
-                   JOIN relationships r ON m.id = r.target_entry_id
-                   WHERE r.source_entry_id = ? AND r.relationship_type = ?
-                   LIMIT ?""",
-                (memory_id, relationship_type, limit),
+        def _get_related() -> list[dict]:
+            src_ids = self._list_ids_by_field(
+                "source_entry_id", memory_id, self.REL_PREFIX
             )
-        else:
-            cursor = await self._conn.execute(
-                """SELECT m.* FROM memory_entries m
-                   JOIN relationships r ON m.id = r.target_entry_id
-                   WHERE r.source_entry_id = ?
-                   LIMIT ?""",
-                (memory_id, limit),
+            tgt_ids = self._list_ids_by_field(
+                "target_entry_id", memory_id, self.REL_PREFIX
             )
 
-        rows = await cursor.fetchall()
-        return [self._row_to_memory(row) for row in rows]
+            related_memory_ids: set[str] = set()
+            for rid in set(src_ids + tgt_ids):
+                rel_data = self._get_entity_data(rid)
+                if not rel_data:
+                    continue
+                rtype = rel_data.get("relationship_type", "")
+                if relationship_type and rtype != relationship_type:
+                    continue
+                src = rel_data.get("source_entry_id", "")
+                tgt = rel_data.get("target_entry_id", "")
+                other = tgt if src == memory_id else src
+                if other:
+                    related_memory_ids.add(other)
 
-    # Notification operations
+            results = []
+            for mid in related_memory_ids:
+                d = self._get_entity_data(f"{self.MEMORY_PREFIX}{mid}")
+                if d:
+                    results.append(d)
+            return results
+
+        all_data = await asyncio.to_thread(_get_related)
+        return [Memory(**d) for d in all_data[:limit]]
+
+    async def list_relationships(
+        self,
+        source_memory_id: Optional[str] = None,
+        target_memory_id: Optional[str] = None,
+        relationship_type: Optional[str] = None,
+        limit: int = 1000,
+    ) -> list[Relationship]:
+        """List relationships with optional endpoint/type filters."""
+
+        def _list() -> list[dict]:
+            if source_memory_id:
+                ids = self._list_ids_by_field(
+                    "source_entry_id", source_memory_id, self.REL_PREFIX
+                )
+            elif target_memory_id:
+                ids = self._list_ids_by_field(
+                    "target_entry_id", target_memory_id, self.REL_PREFIX
+                )
+            elif relationship_type:
+                ids = self._list_ids_by_field(
+                    "relationship_type", relationship_type, self.REL_PREFIX
+                )
+            else:
+                ids = self._list_ids_by_type("relationship")
+            return self._fetch_entities(ids)
+
+        all_data = await asyncio.to_thread(_list)
+        relationships = []
+        for d in all_data:
+            if source_memory_id and d.get("source_entry_id") != source_memory_id:
+                continue
+            if target_memory_id and d.get("target_entry_id") != target_memory_id:
+                continue
+            if relationship_type and d.get("relationship_type") != relationship_type:
+                continue
+            relationships.append(Relationship(**d))
+        relationships.sort(key=lambda r: r.created_at, reverse=True)
+        return relationships[:limit]
+
+    # ── Session list/delete ─────────────────────────────────────────
+
+    async def list_sessions(
+        self,
+        task_type: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = 20,
+    ) -> list[Session]:
+        def _list() -> list[dict]:
+            if status:
+                ids = self._list_ids_by_field("status", status, self.SESSION_PREFIX)
+            elif task_type:
+                ids = self._list_ids_by_field("task_type", task_type, self.SESSION_PREFIX)
+            else:
+                ids = self._list_ids_by_type("session")
+            return self._fetch_entities(ids)
+
+        all_data = await asyncio.to_thread(_list)
+        sessions = []
+        for d in all_data:
+            if task_type and d.get("task_type") != task_type:
+                continue
+            if status and d.get("status") != status:
+                continue
+            sessions.append(Session(**d))
+        sessions.sort(key=lambda s: s.created_at, reverse=True)
+        return sessions[:limit]
+
+    async def delete_session(self, session_id: str) -> bool:
+        entity_id = f"{self.SESSION_PREFIX}{session_id}"
+
+        def _delete() -> bool:
+            data = self._get_entity_data(entity_id)
+            if not data:
+                return False
+            mem_ids = self._list_ids_by_field("session_id", session_id, self.MEMORY_PREFIX)
+            for mid in mem_ids:
+                mem_data = self._get_entity_data(mid)
+                if mem_data:
+                    self._delete_entity(
+                        mid, "memory", mem_data, ("session_id", "category", "priority", "content_type")
+                    )
+            self._delete_entity(entity_id, "session", data, ("status", "task_type"))
+            return True
+
+        result = await asyncio.to_thread(_delete)
+        if result:
+            logger.info(f"Deleted session: {session_id}")
+        return result
+
+    # ── Notification operations ──────────────────────────────────────
+
     async def create_notification(self, notification: Notification) -> Notification:
-        """Create a notification."""
-        await self._conn.execute(
-            """INSERT INTO notifications 
-               (id, session_id, notification_type, priority, message, metadata, read, created_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                notification.id,
-                notification.session_id,
-                notification.notification_type.value,
-                notification.priority,
-                notification.message,
-                json.dumps(notification.metadata) if notification.metadata else None,
-                1 if notification.read else 0,
-                notification.created_at.isoformat(),
-            ),
+        entity_id = f"{self.NOTIF_PREFIX}{notification.id}"
+        data = json.loads(notification.model_dump_json())
+
+        await asyncio.to_thread(
+            self._put_entity,
+            entity_id,
+            "notification",
+            data,
+            ("session_id", "notification_type", "read"),
         )
-        await self._conn.commit()
         return notification
 
     async def get_notifications(
-        self, session_id: Optional[str] = None, read: Optional[bool] = None, limit: int = 20
+        self,
+        session_id: Optional[str] = None,
+        read: Optional[bool] = None,
+        limit: int = 20,
     ) -> list[Notification]:
-        """Get notifications."""
-        conditions = []
-        params = []
+        def _list() -> list[dict]:
+            if session_id:
+                ids = self._list_ids_by_field("session_id", session_id, self.NOTIF_PREFIX)
+            else:
+                ids = self._list_ids_by_type("notification")
+            return self._fetch_entities(ids)
 
-        if session_id:
-            conditions.append("session_id = ?")
-            params.append(session_id)
-        if read is not None:
-            conditions.append("read = ?")
-            params.append(1 if read else 0)
+        all_data = await asyncio.to_thread(_list)
 
-        where_clause = " AND ".join(conditions) if conditions else "1=1"
-        cursor = await self._conn.execute(
-            f"SELECT * FROM notifications WHERE {where_clause} ORDER BY created_at DESC LIMIT ?",
-            (*params, limit),
-        )
+        notifications = []
+        for d in all_data:
+            if session_id and d.get("session_id") != session_id:
+                continue
+            if read is not None and d.get("read") != read:
+                continue
+            notifications.append(Notification(**d))
 
-        rows = await cursor.fetchall()
-        return [self._row_to_notification(row) for row in rows]
+        notifications.sort(key=lambda n: n.created_at, reverse=True)
+        return notifications[:limit]
 
-    # Helper methods
-    def _row_to_memory(self, row: aiosqlite.Row) -> Memory:
-        """Convert database row to Memory model."""
-        return Memory(
-            id=row["id"],
-            session_id=row["session_id"],
-            title=row["title"],
-            content=row["content"],
-            content_type=row["content_type"],
-            category=row["category"],
-            priority=row["priority"],
-            confidence=row["confidence"],
-            tags=json.loads(row["tags"]) if row["tags"] else [],
-            source=row["source"],
-            created_at=row["created_at"],
-            updated_at=row["updated_at"],
-            accessed_at=row["accessed_at"],
-            access_count=row["access_count"],
-        )
+    async def mark_notification_read(self, notification_id: str, read: bool = True) -> bool:
+        """Mark a notification read/unread."""
+        entity_id = f"{self.NOTIF_PREFIX}{notification_id}"
 
-    def _row_to_notification(self, row: aiosqlite.Row) -> Notification:
-        """Convert database row to Notification model."""
-        return Notification(
-            id=row["id"],
-            session_id=row["session_id"],
-            notification_type=row["notification_type"],
-            priority=row["priority"],
-            message=row["message"],
-            metadata=json.loads(row["metadata"]) if row["metadata"] else None,
-            read=bool(row["read"]),
-            created_at=row["created_at"],
-        )
+        def _update() -> bool:
+            old_data = self._get_entity_data(entity_id)
+            if not old_data:
+                return False
+            new_data = dict(old_data)
+            new_data["read"] = read
+            self._delete_entity(
+                entity_id,
+                "notification",
+                old_data,
+                ("session_id", "notification_type", "read"),
+            )
+            self._put_entity(
+                entity_id,
+                "notification",
+                new_data,
+                ("session_id", "notification_type", "read"),
+            )
+            return True
+
+        return await asyncio.to_thread(_update)

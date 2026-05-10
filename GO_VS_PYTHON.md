@@ -10,7 +10,7 @@ This document compares the original Go implementation with the new Python implem
 |-----------|------------------|----------------------|
 | **Language** | Go 1.21+ | Python 3.11+ |
 | **MCP Framework** | mcp-go | FastMCP |
-| **Database Driver** | go-sqlite3 | aiosqlite |
+| **Storage** | SQLite | CogDB graph store |
 | **CLI Framework** | cobra/viper | Typer |
 | **Logging** | charmbracelet/log | Loguru |
 | **Validation** | Manual structs | Pydantic |
@@ -40,9 +40,9 @@ tinybrain-python/
 ├── tinybrain/
 │   ├── cli.py                # Typer CLI
 │   ├── config.py             # Pydantic settings
-│   ├── logging.py            # Loguru config
+│   ├── log_config.py         # Loguru config
 │   ├── models/               # Pydantic models
-│   ├── database/             # Async SQLite
+│   ├── database/             # CogDB graph backend
 │   ├── mcp/                  # FastMCP server
 │   └── services/             # Data downloaders
 ├── pyproject.toml            # UV config
@@ -53,16 +53,16 @@ tinybrain-python/
 
 | Feature | Go | Python | Notes |
 |---------|----|---------| ------|
-| **MCP Tools** | 40 | 11 | Python has core tools, more can be added |
+| **MCP Tools** | ~40 | 38 | Python covers the major parity surface |
 | **Async Operations** | ✅ | ✅ | Go uses goroutines, Python uses async/await |
-| **Full-Text Search** | ✅ | ✅ | Both use SQLite FTS5 |
+| **Similarity Search** | ✅ | ✅ | Python uses deterministic local token-vector ranking |
 | **Relationships** | ✅ | ✅ | Graph-style queries in both |
 | **Notifications** | ✅ | ✅ | Real-time alerts |
 | **Task Progress** | ✅ | ✅ | Multi-stage tracking |
 | **Context Snapshots** | ✅ | ✅ | Saved context states |
 | **Security Data** | ✅ | ✅ | MITRE, NVD, CWE, OWASP |
 | **HTTP Transport** | ❌ | 🚧 | Python has FastAPI ready |
-| **Web Dashboard** | ❌ | 🚧 | Python can add Streamlit |
+| **Web Dashboard** | ❌ | ✅ | Python includes a FastAPI web UI |
 | **Docker Support** | ✅ | 🚧 | Easy to add |
 | **Binary Distribution** | ✅ | ❌ | Go compiles to single binary |
 | **Type Safety** | ✅ | ✅ | Go at compile-time, Python at runtime |
@@ -218,16 +218,16 @@ cursor = await db._conn.execute(
 
 ### From Go to Python
 1. ✅ Core models (Pydantic)
-2. ✅ Database layer (aiosqlite)
+2. ✅ Database layer (CogDB)
 3. ✅ MCP server (FastMCP)
 4. ✅ CLI (Typer)
-5. 🚧 All 40 MCP tools
+5. 🚧 Remaining edge-case MCP tools
 6. 🚧 HTTP transport
 7. 🚧 Docker support
 
 ### From Python to Go
 1. Convert Pydantic models to Go structs
-2. Replace aiosqlite with go-sqlite3
+2. Replace CogDB graph operations with Go storage/repository equivalents
 3. Replace FastMCP with mcp-go
 4. Replace Typer with cobra
 5. Add Makefile for builds
@@ -245,16 +245,16 @@ Both implementations are production-ready and feature-complete for core function
 
 **Python Implementation:**
 - Best for: Rapid development, Python ecosystem integration, flexibility
-- 11 core MCP tools (easily extensible to 40)
+- 38 MCP tools, including batch operations, import/export, templates, diagnostics, and local similarity tooling
 - Rich ecosystem access
 - Modern tooling (UV, mise, FastMCP)
 
-The Python implementation provides a solid foundation that can be extended to match all features of the Go implementation while offering advantages in development speed and ecosystem integration.
+The Python implementation is now close to the original Go MCP surface while offering advantages in development speed, deterministic local analysis, and Python ecosystem integration.
 
 ## Recommendation
 
-- **Production deployment**: Go (performance, single binary)
-- **Development/prototyping**: Python (speed, flexibility)
+- **Single-binary deployment**: Go
+- **LLM-agent workflows and rapid security research iteration**: Python
 - **Python-heavy environment**: Python (integration)
 - **Standalone tool**: Go (deployment simplicity)
 - **Team expertise**: Choose based on team skills
