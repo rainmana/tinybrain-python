@@ -169,9 +169,12 @@ If you're using UV and want to ensure the correct environment:
 }
 ```
 
-## 🛠️ MCP Tools (40 Total)
+## 🛠️ MCP Tools (43 Total)
 
 TinyBrain provides comprehensive MCP tools for memory management:
+
+For feature parity tracking against the original Go documentation, see
+[GO_PARITY_MATRIX.md](GO_PARITY_MATRIX.md).
 
 ### Discovery Tools (4 tools - Start Here!)
 - `get_tinybrain_help` - Quick start guide and usage information
@@ -210,7 +213,7 @@ TinyBrain provides comprehensive MCP tools for memory management:
 ### System (1 tool)
 - `health_check` - Perform system health checks
 
-### Parity & Analysis Tools (19 tools)
+### Parity & Analysis Tools (22 tools)
 - `calculate_similarity` - Calculate deterministic token similarity between text blocks
 - `generate_embedding` - Generate stable local feature vectors for offline matching and tests
 - `find_similar_memories` - Find memories similar to a source memory
@@ -229,6 +232,9 @@ TinyBrain provides comprehensive MCP tools for memory management:
 - `check_high_priority_memories` - Find high-priority, high-confidence memories
 - `get_system_diagnostics` - Return storage and tool-surface diagnostics
 - `cleanup_orphan_relationships` - Remove relationship records whose source or target memory is missing
+- `cleanup_old_memories` - Dry-run or delete memories older than a configurable age
+- `cleanup_low_priority_memories` - Dry-run or delete low-priority memories
+- `cleanup_unused_memories` - Dry-run or delete old, low-access memories
 
 ## 🎯 Quick Start Workflow
 

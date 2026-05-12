@@ -21,7 +21,10 @@ EXPECTED_TOOLS = {
     "calculate_similarity",
     "check_duplicates",
     "check_high_priority_memories",
+    "cleanup_low_priority_memories",
     "cleanup_orphan_relationships",
+    "cleanup_old_memories",
+    "cleanup_unused_memories",
     "create_relationship",
     "create_session",
     "delete_session",
@@ -129,6 +132,12 @@ async def main() -> None:
             {"session_id": session_id, "threshold": 0.5},
         )
         assert duplicates["count"] >= 1
+
+        cleanup = await call_tool(
+            "cleanup_low_priority_memories",
+            {"session_id": session_id, "max_priority": 2},
+        )
+        assert cleanup["dry_run"] is True
 
         exported = await call_tool("export_session_data", {"session_id": session_id})
         assert len(exported["relationships"]) == 1

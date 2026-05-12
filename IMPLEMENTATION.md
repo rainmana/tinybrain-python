@@ -2,7 +2,7 @@
 
 ## Current Implementation
 
-TinyBrain Python is implemented as a FastMCP server backed by local CogDB graph storage. The active CLI entrypoint imports `tinybrain.mcp`, which currently exposes 40 tools for memory management, security assessment context, local similarity analysis, batch operations, import/export, notifications, templates, lifecycle cleanup, and diagnostics.
+TinyBrain Python is implemented as a FastMCP server backed by local CogDB graph storage. The active CLI entrypoint imports `tinybrain.mcp`, which currently exposes 43 tools for memory management, security assessment context, local similarity analysis, batch operations, import/export, notifications, templates, lifecycle cleanup, and diagnostics.
 
 ## Core Components
 
@@ -49,7 +49,7 @@ uv run ruff check --select F,I,ARG tinybrain/database/__init__.py tinybrain/mcp/
 
 The current pass was verified with:
 
-- Full pytest suite: 58 tests passing
+- Full pytest suite: 60 tests passing
 - Scoped Ruff checks: passing
 - Live FastMCP registration and `call_tool` smoke test: passing
 

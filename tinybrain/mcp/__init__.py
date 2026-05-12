@@ -738,6 +738,90 @@ async def cleanup_orphan_relationships() -> dict:
 
 
 @mcp.tool()
+async def cleanup_old_memories(
+    max_age_days: int = 30,
+    session_id: Optional[str] = None,
+    dry_run: bool = True,
+    limit: int = 1000,
+) -> dict:
+    """TinyBrain: Find or delete memories older than max_age_days.
+
+    Defaults to dry-run mode so agents can review candidates before deletion.
+    """
+    database = await get_db()
+    result = await database.cleanup_memories_by_age(
+        max_age_days=max_age_days,
+        session_id=session_id,
+        dry_run=dry_run,
+        limit=limit,
+    )
+    result["criteria"] = {
+        "max_age_days": max_age_days,
+        "session_id": session_id,
+        "limit": limit,
+    }
+    return result
+
+
+@mcp.tool()
+async def cleanup_low_priority_memories(
+    max_priority: int = 2,
+    min_age_days: int = 0,
+    session_id: Optional[str] = None,
+    dry_run: bool = True,
+    limit: int = 1000,
+) -> dict:
+    """TinyBrain: Find or delete low-priority memories.
+
+    Defaults to dry-run mode so agents can review candidates before deletion.
+    """
+    database = await get_db()
+    result = await database.cleanup_low_priority_memories(
+        max_priority=max_priority,
+        min_age_days=min_age_days,
+        session_id=session_id,
+        dry_run=dry_run,
+        limit=limit,
+    )
+    result["criteria"] = {
+        "max_priority": max_priority,
+        "min_age_days": min_age_days,
+        "session_id": session_id,
+        "limit": limit,
+    }
+    return result
+
+
+@mcp.tool()
+async def cleanup_unused_memories(
+    max_access_count: int = 0,
+    min_age_days: int = 30,
+    session_id: Optional[str] = None,
+    dry_run: bool = True,
+    limit: int = 1000,
+) -> dict:
+    """TinyBrain: Find or delete old memories with low access counts.
+
+    Defaults to dry-run mode so agents can review candidates before deletion.
+    """
+    database = await get_db()
+    result = await database.cleanup_unused_memories(
+        max_access_count=max_access_count,
+        min_age_days=min_age_days,
+        session_id=session_id,
+        dry_run=dry_run,
+        limit=limit,
+    )
+    result["criteria"] = {
+        "max_access_count": max_access_count,
+        "min_age_days": min_age_days,
+        "session_id": session_id,
+        "limit": limit,
+    }
+    return result
+
+
+@mcp.tool()
 async def export_session_data(session_id: str) -> dict:
     """TinyBrain: Export a session with its memories and relationships."""
     database = await get_db()
