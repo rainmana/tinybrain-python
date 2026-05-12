@@ -169,7 +169,7 @@ If you're using UV and want to ensure the correct environment:
 }
 ```
 
-## 🛠️ MCP Tools (38 Total)
+## 🛠️ MCP Tools (40 Total)
 
 TinyBrain provides comprehensive MCP tools for memory management:
 
@@ -186,10 +186,11 @@ TinyBrain provides comprehensive MCP tools for memory management:
 - `update_memory` - Update existing memories
 - `delete_memory` - Delete memory entries
 
-### Session Management (3 tools)
+### Session Management (4 tools)
 - `create_session` - Create new security assessment sessions
 - `get_session` - Retrieve session information
 - `list_sessions` - List all sessions with filters
+- `delete_session` - Delete a session and cascade associated memories, relationships, and notifications
 
 ### Tag-Based Linking (3 tools)
 - `get_popular_tags` - See most frequently used tags
@@ -209,7 +210,7 @@ TinyBrain provides comprehensive MCP tools for memory management:
 ### System (1 tool)
 - `health_check` - Perform system health checks
 
-### Parity & Analysis Tools (18 tools)
+### Parity & Analysis Tools (19 tools)
 - `calculate_similarity` - Calculate deterministic token similarity between text blocks
 - `generate_embedding` - Generate stable local feature vectors for offline matching and tests
 - `find_similar_memories` - Find memories similar to a source memory
@@ -227,6 +228,7 @@ TinyBrain provides comprehensive MCP tools for memory management:
 - `mark_notification_read` - Mark notifications read or unread
 - `check_high_priority_memories` - Find high-priority, high-confidence memories
 - `get_system_diagnostics` - Return storage and tool-surface diagnostics
+- `cleanup_orphan_relationships` - Remove relationship records whose source or target memory is missing
 
 ## 🎯 Quick Start Workflow
 

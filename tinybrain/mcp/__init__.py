@@ -111,6 +111,27 @@ def _memory_preview(memory: Memory) -> dict:
     return data
 
 
+async def _create_high_priority_notification(
+    database: Database,
+    session_id: str,
+    memory_id: str,
+    title: str,
+    priority: int,
+    confidence: float,
+) -> None:
+    if priority < 8 or confidence < 0.8:
+        return
+    notification = Notification(
+        id=f"notif_{uuid4().hex[:16]}",
+        session_id=session_id,
+        notification_type=NotificationType.HIGH_PRIORITY,
+        priority=priority,
+        message=f"High priority memory created: {title}",
+        metadata={"memory_id": memory_id},
+    )
+    await database.create_notification(notification)
+
+
 # ── Core Memory Operations ────────────────────────────────────────
 
 @mcp.tool()
@@ -149,16 +170,14 @@ async def store_memory(
         )
         await database.create_memory(memory)
 
-        if priority >= 8 and confidence >= 0.8:
-            notification = Notification(
-                id=f"notif_{uuid4().hex[:16]}",
-                session_id=session_id,
-                notification_type=NotificationType.HIGH_PRIORITY,
-                priority=priority,
-                message=f"High priority memory created: {title}",
-                metadata={"memory_id": memory.id},
-            )
-            await database.create_notification(notification)
+        await _create_high_priority_notification(
+            database,
+            session_id=session_id,
+            memory_id=memory.id,
+            title=title,
+            priority=priority,
+            confidence=confidence,
+        )
 
         return {"id": memory.id, "status": "created"}
     except ValueError as e:
@@ -307,6 +326,14 @@ async def list_sessions(
         limit=limit,
     )
     return [s.model_dump(mode="json") for s in sessions]
+
+
+@mcp.tool()
+async def delete_session(session_id: str) -> dict:
+    """TinyBrain: Delete a session and its memories, relationships, and notifications."""
+    database = await get_db()
+    success = await database.delete_session(session_id)
+    return {"success": success}
 
 
 # ── Relationship Management ───────────────────────────────────────
@@ -654,6 +681,14 @@ async def batch_create_memories(session_id: str, memories: list[dict]) -> dict:
                 source=item.get("source"),
             )
             await database.create_memory(memory)
+            await _create_high_priority_notification(
+                database,
+                session_id=session_id,
+                memory_id=memory.id,
+                title=memory.title,
+                priority=memory.priority,
+                confidence=memory.confidence,
+            )
             created.append(memory.model_dump(mode="json"))
         except Exception as exc:
             errors.append({"index": index, "error": str(exc)})
@@ -693,6 +728,13 @@ async def batch_delete_memories(memory_ids: list[str]) -> dict:
         else:
             missing.append(memory_id)
     return {"deleted": deleted, "deleted_count": len(deleted), "missing": missing}
+
+
+@mcp.tool()
+async def cleanup_orphan_relationships() -> dict:
+    """TinyBrain: Delete relationship records whose source or target memory is missing."""
+    database = await get_db()
+    return await database.cleanup_orphan_relationships()
 
 
 @mcp.tool()

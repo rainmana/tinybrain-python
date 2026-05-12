@@ -10,6 +10,7 @@ Also re-exports inner-layer components for convenience:
 
 import asyncio
 import json
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
@@ -18,6 +19,8 @@ from cog.torque import Graph
 from loguru import logger
 
 from tinybrain.models import Memory, Notification, Relationship, Session
+
+TOKEN_RE = re.compile(r"[a-z0-9_./:-]+")
 
 # Re-export inner layer components so `from tinybrain.database import CogDBBackend` works
 # when running from the project root (where outer tinybrain/ shadows inner tinybrain/tinybrain/).
@@ -145,6 +148,66 @@ class Database:
                 entities.append(data)
         return entities
 
+    def _delete_relationship_data(self, rel_entity_id: str, rel_data: dict) -> None:
+        self._delete_entity(
+            rel_entity_id,
+            "relationship",
+            rel_data,
+            ("source_entry_id", "target_entry_id", "relationship_type"),
+        )
+        src = rel_data.get("source_entry_id")
+        tgt = rel_data.get("target_entry_id")
+        rel_type = rel_data.get("relationship_type")
+        if src and tgt and rel_type:
+            try:
+                self._graph.delete(
+                    f"{self.MEMORY_PREFIX}{src}",
+                    rel_type,
+                    f"{self.MEMORY_PREFIX}{tgt}",
+                )
+            except Exception:
+                pass
+
+    def _delete_relationships_for_memory(self, memory_id: str) -> int:
+        src_ids = self._list_ids_by_field("source_entry_id", memory_id, self.REL_PREFIX)
+        tgt_ids = self._list_ids_by_field("target_entry_id", memory_id, self.REL_PREFIX)
+        deleted = 0
+        for rid in set(src_ids + tgt_ids):
+            rel_data = self._get_entity_data(rid)
+            if rel_data:
+                self._delete_relationship_data(rid, rel_data)
+                deleted += 1
+        return deleted
+
+    def _delete_notifications_for_memory(self, memory_id: str) -> int:
+        notif_ids = self._list_ids_by_type("notification")
+        deleted = 0
+        for nid in notif_ids:
+            notif_data = self._get_entity_data(nid)
+            metadata = notif_data.get("metadata") if notif_data else None
+            if isinstance(metadata, dict) and metadata.get("memory_id") == memory_id:
+                self._delete_entity(
+                    nid,
+                    "notification",
+                    notif_data,
+                    ("session_id", "notification_type", "read"),
+                )
+                deleted += 1
+        return deleted
+
+    @staticmethod
+    def _query_matches(query: str, *fields: str) -> bool:
+        query_lower = query.lower()
+        haystack = " ".join(fields).lower()
+        if query_lower in haystack:
+            return True
+
+        query_tokens = TOKEN_RE.findall(query_lower)
+        if not query_tokens:
+            return True
+        haystack_tokens = set(TOKEN_RE.findall(haystack))
+        return all(token in haystack_tokens for token in query_tokens)
+
     # ── Session operations ───────────────────────────────────────────
 
     async def create_session(self, session: Session) -> Session:
@@ -219,7 +282,7 @@ class Database:
                 title = (d.get("title") or "").lower()
                 content = (d.get("content") or "").lower()
                 tags_str = " ".join(d.get("tags", []) if isinstance(d.get("tags"), list) else []).lower()
-                if query_lower not in title and query_lower not in content and query_lower not in tags_str:
+                if not self._query_matches(query_lower, title, content, tags_str):
                     continue
             memories.append(Memory(**d))
 
@@ -258,6 +321,8 @@ class Database:
             data = self._get_entity_data(entity_id)
             if not data:
                 return False
+            self._delete_relationships_for_memory(memory_id)
+            self._delete_notifications_for_memory(memory_id)
             self._delete_entity(
                 entity_id, "memory", data, ("session_id", "category", "priority", "content_type")
             )
@@ -368,6 +433,44 @@ class Database:
         relationships.sort(key=lambda r: r.created_at, reverse=True)
         return relationships[:limit]
 
+    async def delete_relationship(self, relationship_id: str) -> bool:
+        entity_id = f"{self.REL_PREFIX}{relationship_id}"
+
+        def _delete() -> bool:
+            data = self._get_entity_data(entity_id)
+            if not data:
+                return False
+            self._delete_relationship_data(entity_id, data)
+            return True
+
+        return await asyncio.to_thread(_delete)
+
+    async def cleanup_orphan_relationships(self) -> dict[str, int]:
+        def _cleanup() -> dict[str, int]:
+            rel_ids = self._list_ids_by_type("relationship")
+            deleted = 0
+            checked = 0
+            for rid in rel_ids:
+                checked += 1
+                rel_data = self._get_entity_data(rid)
+                if not rel_data:
+                    continue
+                src = rel_data.get("source_entry_id")
+                tgt = rel_data.get("target_entry_id")
+                if not src or not tgt:
+                    self._delete_relationship_data(rid, rel_data)
+                    deleted += 1
+                    continue
+                if (
+                    self._get_entity_data(f"{self.MEMORY_PREFIX}{src}") is None
+                    or self._get_entity_data(f"{self.MEMORY_PREFIX}{tgt}") is None
+                ):
+                    self._delete_relationship_data(rid, rel_data)
+                    deleted += 1
+            return {"checked": checked, "deleted": deleted}
+
+        return await asyncio.to_thread(_cleanup)
+
     # ── Session list/delete ─────────────────────────────────────────
 
     async def list_sessions(
@@ -407,8 +510,21 @@ class Database:
             for mid in mem_ids:
                 mem_data = self._get_entity_data(mid)
                 if mem_data:
+                    plain_id = mem_data.get("id", mid.removeprefix(self.MEMORY_PREFIX))
+                    self._delete_relationships_for_memory(plain_id)
+                    self._delete_notifications_for_memory(plain_id)
                     self._delete_entity(
                         mid, "memory", mem_data, ("session_id", "category", "priority", "content_type")
+                    )
+            notif_ids = self._list_ids_by_field("session_id", session_id, self.NOTIF_PREFIX)
+            for nid in notif_ids:
+                notif_data = self._get_entity_data(nid)
+                if notif_data:
+                    self._delete_entity(
+                        nid,
+                        "notification",
+                        notif_data,
+                        ("session_id", "notification_type", "read"),
                     )
             self._delete_entity(entity_id, "session", data, ("status", "task_type"))
             return True

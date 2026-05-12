@@ -53,7 +53,7 @@ tinybrain-python/
 
 | Feature | Go | Python | Notes |
 |---------|----|---------| ------|
-| **MCP Tools** | ~40 | 38 | Python covers the major parity surface |
+| **MCP Tools** | ~40 | 40 | Python covers the major parity surface |
 | **Async Operations** | ✅ | ✅ | Go uses goroutines, Python uses async/await |
 | **Similarity Search** | ✅ | ✅ | Python uses deterministic local token-vector ranking |
 | **Relationships** | ✅ | ✅ | Graph-style queries in both |
@@ -245,7 +245,7 @@ Both implementations are production-ready and feature-complete for core function
 
 **Python Implementation:**
 - Best for: Rapid development, Python ecosystem integration, flexibility
-- 38 MCP tools, including batch operations, import/export, templates, diagnostics, and local similarity tooling
+- 40 MCP tools, including batch operations, import/export, templates, lifecycle cleanup, diagnostics, and local similarity tooling
 - Rich ecosystem access
 - Modern tooling (UV, mise, FastMCP)
 
