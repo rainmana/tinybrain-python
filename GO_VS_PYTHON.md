@@ -53,14 +53,14 @@ tinybrain-python/
 
 | Feature | Go | Python | Notes |
 |---------|----|---------| ------|
-| **MCP Tools** | ~40 | 40 | Python covers the major parity surface |
+| **MCP Tools** | 40+ | 43 | Python covers the major parity surface |
 | **Async Operations** | ✅ | ✅ | Go uses goroutines, Python uses async/await |
 | **Similarity Search** | ✅ | ✅ | Python uses deterministic local token-vector ranking |
 | **Relationships** | ✅ | ✅ | Graph-style queries in both |
 | **Notifications** | ✅ | ✅ | Real-time alerts |
-| **Task Progress** | ✅ | ✅ | Multi-stage tracking |
-| **Context Snapshots** | ✅ | ✅ | Saved context states |
-| **Security Data** | ✅ | ✅ | MITRE, NVD, CWE, OWASP |
+| **Task Progress** | ✅ | 🚧 | Models/backend support exist; active outer MCP tools are still pending |
+| **Context Snapshots** | ✅ | 🚧 | Models/backend support exist; active outer MCP tools are still pending |
+| **Security Data** | ✅ | 🚧 | Templates exist; durable framework datasets are planned for a DuckDB sidecar |
 | **HTTP Transport** | ❌ | 🚧 | Python has FastAPI ready |
 | **Web Dashboard** | ❌ | ✅ | Python includes a FastAPI web UI |
 | **Docker Support** | ✅ | 🚧 | Easy to add |
@@ -239,13 +239,13 @@ Both implementations are production-ready and feature-complete for core function
 
 **Go Implementation:**
 - Best for: Performance, deployment simplicity, systems programming
-- 40 MCP tools implemented
+- 40+ MCP tools implemented
 - Single binary deployment
 - Lower resource usage
 
 **Python Implementation:**
 - Best for: Rapid development, Python ecosystem integration, flexibility
-- 40 MCP tools, including batch operations, import/export, templates, lifecycle cleanup, diagnostics, and local similarity tooling
+- 43 MCP tools, including batch operations, import/export, templates, lifecycle cleanup, diagnostics, and local similarity tooling
 - Rich ecosystem access
 - Modern tooling (UV, mise, FastMCP)
 

@@ -11,7 +11,7 @@ Also re-exports inner-layer components for convenience:
 import asyncio
 import json
 import re
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Optional
 
@@ -43,6 +43,17 @@ def _json_serial(obj: Any) -> str:
     if isinstance(obj, datetime):
         return obj.isoformat()
     raise TypeError(f"Type {type(obj)} not serializable")
+
+
+def _parse_datetime(value: Any) -> Optional[datetime]:
+    if isinstance(value, datetime):
+        return value
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).replace(tzinfo=None)
+    except ValueError:
+        return None
 
 
 class Database:
@@ -470,6 +481,92 @@ class Database:
             return {"checked": checked, "deleted": deleted}
 
         return await asyncio.to_thread(_cleanup)
+
+    async def cleanup_memories_by_age(
+        self,
+        max_age_days: int,
+        session_id: Optional[str] = None,
+        dry_run: bool = True,
+        limit: int = 1000,
+    ) -> dict[str, Any]:
+        """Find or delete memories older than the requested age."""
+        cutoff = datetime.utcnow() - timedelta(days=max_age_days)
+        candidates = [
+            memory
+            for memory in await self.search_memories(session_id=session_id, limit=limit)
+            if (created_at := _parse_datetime(memory.created_at)) is not None
+            and created_at < cutoff
+        ]
+        return await self._cleanup_memory_candidates(candidates, dry_run=dry_run)
+
+    async def cleanup_low_priority_memories(
+        self,
+        max_priority: int = 2,
+        min_age_days: int = 0,
+        session_id: Optional[str] = None,
+        dry_run: bool = True,
+        limit: int = 1000,
+    ) -> dict[str, Any]:
+        """Find or delete low-priority memories, optionally after an age threshold."""
+        cutoff = datetime.utcnow() - timedelta(days=min_age_days)
+        candidates = []
+        for memory in await self.search_memories(session_id=session_id, limit=limit):
+            created_at = _parse_datetime(memory.created_at)
+            if memory.priority <= max_priority and created_at is not None and created_at < cutoff:
+                candidates.append(memory)
+        return await self._cleanup_memory_candidates(candidates, dry_run=dry_run)
+
+    async def cleanup_unused_memories(
+        self,
+        max_access_count: int = 0,
+        min_age_days: int = 30,
+        session_id: Optional[str] = None,
+        dry_run: bool = True,
+        limit: int = 1000,
+    ) -> dict[str, Any]:
+        """Find or delete old memories that have not been accessed often."""
+        cutoff = datetime.utcnow() - timedelta(days=min_age_days)
+        candidates = []
+        for memory in await self.search_memories(session_id=session_id, limit=limit):
+            accessed_at = _parse_datetime(memory.accessed_at)
+            if (
+                memory.access_count <= max_access_count
+                and accessed_at is not None
+                and accessed_at < cutoff
+            ):
+                candidates.append(memory)
+        return await self._cleanup_memory_candidates(candidates, dry_run=dry_run)
+
+    async def _cleanup_memory_candidates(
+        self,
+        candidates: list[Memory],
+        dry_run: bool,
+    ) -> dict[str, Any]:
+        deleted = []
+        if not dry_run:
+            for memory in candidates:
+                if await self.delete_memory(memory.id):
+                    deleted.append(memory.id)
+        return {
+            "dry_run": dry_run,
+            "candidate_count": len(candidates),
+            "deleted_count": len(deleted),
+            "deleted": deleted,
+            "candidates": [
+                {
+                    "id": memory.id,
+                    "session_id": memory.session_id,
+                    "title": memory.title,
+                    "category": memory.category.value,
+                    "priority": memory.priority,
+                    "confidence": memory.confidence,
+                    "created_at": memory.created_at.isoformat(),
+                    "accessed_at": memory.accessed_at.isoformat(),
+                    "access_count": memory.access_count,
+                }
+                for memory in candidates
+            ],
+        }
 
     # ── Session list/delete ─────────────────────────────────────────
 

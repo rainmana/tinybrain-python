@@ -4,7 +4,7 @@
 
 TinyBrain Python is a security-focused LLM memory MCP server for security review, penetration testing, exploit development, vulnerability analysis, and related research workflows. It uses FastMCP for the MCP surface, CogDB for local graph storage, Pydantic for runtime validation, Typer for the CLI, and FastAPI for the web UI.
 
-The current active MCP module exposes 40 tools and has been tested through both pytest and live FastMCP `call_tool` smoke checks.
+The current active MCP module exposes 43 tools and has been tested through both pytest and live FastMCP `call_tool` smoke checks.
 
 ## Technology Stack
 
@@ -75,6 +75,9 @@ There is also a nested reference package under `tinybrain/tinybrain/` that conta
 - `get_memory_stats`
 - `get_system_diagnostics`
 - `cleanup_orphan_relationships`
+- `cleanup_old_memories`
+- `cleanup_low_priority_memories`
+- `cleanup_unused_memories`
 
 Similarity and embedding-shaped features are deterministic and local. They are intended for offline, repeatable security workflows and can be replaced or augmented later with provider-backed neural embeddings.
 
@@ -107,7 +110,7 @@ The experimental mempalace files were removed from the repo. Mempalace-style ent
 
 ```bash
 uv run pytest
-uv run ruff check --select F,I,ARG tinybrain/database/__init__.py tinybrain/mcp/__init__.py tests/test_mcp_parity_tools.py
+uv run ruff check --select F,I,ARG tinybrain/database/__init__.py tinybrain/mcp/__init__.py tests/test_mcp_parity_tools.py scripts/native_mcp_smoke.py
 ```
 
 The current feature pass also includes a live FastMCP smoke test that checks tool registration and calls the new tools through `mcp.call_tool` against an isolated temporary CogDB database.

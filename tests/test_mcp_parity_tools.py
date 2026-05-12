@@ -1,6 +1,7 @@
 """Tests for Go-parity MCP utility tools."""
 
 import shutil
+from datetime import datetime, timedelta
 
 import pytest
 
@@ -264,3 +265,94 @@ async def test_delete_session_cascades_children(mcp_db):
         "relationships": 0,
         "notifications": 0,
     }
+
+
+@pytest.mark.asyncio
+async def test_cleanup_old_memories_defaults_to_dry_run(mcp_db):
+    session = await mcp_tools.create_session(
+        name="Cleanup Age",
+        task_type="general",
+    )
+    created = await mcp_tools.store_memory(
+        session_id=session["id"],
+        title="Old finding",
+        content="Legacy observation",
+        category="finding",
+    )
+    old_timestamp = (datetime.utcnow() - timedelta(days=60)).isoformat()
+    await mcp_db.update_memory(
+        created["id"],
+        {"created_at": old_timestamp, "accessed_at": old_timestamp},
+    )
+
+    dry_run = await mcp_tools.cleanup_old_memories(
+        max_age_days=30,
+        session_id=session["id"],
+    )
+    assert dry_run["dry_run"] is True
+    assert dry_run["candidate_count"] == 1
+    assert dry_run["deleted_count"] == 0
+    assert await mcp_tools.get_memory(created["id"]) is not None
+
+    deleted = await mcp_tools.cleanup_old_memories(
+        max_age_days=30,
+        session_id=session["id"],
+        dry_run=False,
+    )
+    assert deleted["candidate_count"] == 1
+    assert deleted["deleted"] == [created["id"]]
+    assert await mcp_tools.get_memory(created["id"]) is None
+
+
+@pytest.mark.asyncio
+async def test_cleanup_low_priority_and_unused_memories(mcp_db):
+    session = await mcp_tools.create_session(
+        name="Cleanup Priority",
+        task_type="general",
+    )
+    old_timestamp = (datetime.utcnow() - timedelta(days=90)).isoformat()
+
+    low = await mcp_tools.store_memory(
+        session_id=session["id"],
+        title="Low value note",
+        content="Can be removed",
+        category="note",
+        priority=1,
+    )
+    unused = await mcp_tools.store_memory(
+        session_id=session["id"],
+        title="Unused context",
+        content="Old context",
+        category="context",
+        priority=5,
+    )
+    high = await mcp_tools.store_memory(
+        session_id=session["id"],
+        title="High priority finding",
+        content="Keep this",
+        category="vulnerability",
+        priority=9,
+    )
+    for memory_id in (low["id"], unused["id"], high["id"]):
+        await mcp_db.update_memory(
+            memory_id,
+            {"created_at": old_timestamp, "accessed_at": old_timestamp},
+        )
+    await mcp_db.update_memory(high["id"], {"access_count": 2})
+
+    low_priority = await mcp_tools.cleanup_low_priority_memories(
+        max_priority=2,
+        min_age_days=30,
+        session_id=session["id"],
+        dry_run=False,
+    )
+    assert low_priority["deleted"] == [low["id"]]
+
+    unused_cleanup = await mcp_tools.cleanup_unused_memories(
+        max_access_count=0,
+        min_age_days=30,
+        session_id=session["id"],
+        dry_run=False,
+    )
+    assert unused_cleanup["deleted"] == [unused["id"]]
+    assert await mcp_tools.get_memory(high["id"]) is not None
